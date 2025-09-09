@@ -614,7 +614,20 @@ string MonthToString(int month)
 void ExportBacktestToCSV()
 {
    string symbol = _Symbol;
-   string file_name = symbol + "_" + InpCSV_Suffix + ".csv";
+
+   // Crée le dossier de sortie dans "Common" si nécessaire
+   string folder = "Testes\\2014";
+   if(!DirectoryCreate(folder, FILE_COMMON))
+   {
+      Print("Erreur DirectoryCreate : ", GetLastError());
+      return;
+   }
+
+   // Construit le nom de fichier complet et affiche le chemin résolu
+   string file_name = folder + "\\" + symbol + "_" + InpCSV_Suffix + ".csv";
+   string full_path = TerminalInfoString(TERMINAL_COMMONDATA_PATH) + "\\Files\\" + file_name;
+   Print("Export du fichier CSV vers : ", full_path);
+
    int file_handle = FileOpen(file_name, FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON, 0, CP_UTF8);
    if(file_handle==INVALID_HANDLE)
    {
@@ -710,7 +723,7 @@ void ExportBacktestToCSV()
       }
    }
    FileClose(file_handle);
-   Print("Backtest trades exported to ", file_name);
+   Print("Backtest trades exported to ", full_path);
 }
 //+------------------------------------------------------------------+
 void OnTesterDeinit()
