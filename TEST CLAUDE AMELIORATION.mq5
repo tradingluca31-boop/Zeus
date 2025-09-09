@@ -18,8 +18,8 @@ input bool     InpAllowBuys            = true;
 input bool     InpAllowSells           = true;
 
 // --- Choix des signaux ---
-enum SignalMode { EMA_OR_MACD=0, EMA_ONLY=1, MACD_ONLY=2 };
-input SignalMode InpSignalMode         = EMA_OR_MACD; // "OU" par défaut
+enum SignalMode { EMA_AND_MACD=0, EMA_ONLY=1, MACD_ONLY=2 };
+input SignalMode InpSignalMode         = EMA_AND_MACD; // "ET" par défaut
 input bool     InpUseEMA_Cross         = true;        // EMA21/55 croisement
 input bool     InpUseMACD              = true;        // MACD SMA 20/45/15
 
@@ -52,11 +52,17 @@ input int      InpSessionStartHour     = 6;           // Ouverture 6h (heure ser
 input int      InpSessionEndHour       = 15;          // Fermeture 15h (pas de nouvelles entrées après)
 input int      InpSlippagePoints       = 20;
 input bool     InpVerboseLogs          = false;
-// [ADDED] === SMMA50 + Score conditions (optimisables) ===
-input bool InpUseSMMA50Trend    = true;             // Filtre tendance SMMA50
+// [ADDED] === SMMA50 H4 + SMMA H1 + Score conditions ===
+input bool InpUseSMMA50Trend    = true;             // Filtre tendance SMMA50 H4
 input int  InpSMMA_Period       = 50;               // Période SMMA (Value=50 / Start=20 / Step=5 / Stop=200)
 input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;       // UT SMMA (H4)
-input int  InpMinConditions     = 3;                // Conditions minimales requises (Value=3 / Start=2 / Step=1 / Stop=4)
+
+// [ADDED] SMMA H1 crossover 50/200
+input bool InpUseSMMA_H1_Cross  = true;             // Utiliser SMMA50/200 H1 cross
+input int  InpSMMA50_H1_Period  = 50;               // SMMA50 H1 période
+input int  InpSMMA200_H1_Period = 200;              // SMMA200 H1 période
+
+input int  InpMinConditions     = 3;                // Conditions minimales requises (Value=3 / Start=2 / Step=1 / Stop=5)
 
 // [ADDED] === RSI Filter ===
 input bool InpUseRSI = true;                                // Utiliser filtre RSI
@@ -93,7 +99,8 @@ int gLossStreak = 0;   // [ADDED] Compteur pertes consécutives — Poseidon 03/
 int hEMA21=-1, hEMA55=-1;
 int hSMAfast=-1, hSMAslow=-1;
 
-int hSMMA50 = -1;   // [ADDED] Handle SMMA50
+int hSMMA50 = -1;   // [ADDED] Handle SMMA50 H4
+int hSMMA50_H1 = -1, hSMMA200_H1 = -1;   // [ADDED] Handles SMMA H1
 
 // [ADDED] RSI variables
 int rsi_handle = INVALID_HANDLE;
@@ -182,9 +189,9 @@ void ComputeSignals(bool &buySig,bool &sellSig)
 
    if(InpSignalMode==EMA_ONLY)      { buySig=emaBuy;  sellSig=emaSell; }
    else if(InpSignalMode==MACD_ONLY){ buySig=macdBuy; sellSig=macdSell; }
-   else /* EMA_OR_MACD */           {
-      buySig  = (emaBuy  || macdBuy);
-      sellSig = (emaSell || macdSell);
+   else /* EMA_AND_MACD */          {
+      buySig  = (emaBuy  && macdBuy);   // AND = ET
+      sellSig = (emaSell && macdSell);  // AND = ET
    }
 }
 // [ADDED] ---- Helpers SMMA/EMA/MACD pour scoring 4 conditions ----
@@ -242,6 +249,45 @@ bool GetMACD_HistSignal(bool &buy,bool &sell)
    double hist = (m1 - s1);
    buy  = (hist > 0.0);
    sell = (hist < 0.0);
+   return true;
+}
+
+// [ADDED] SMMA H1 50/200 crossover
+bool GetSMMA_H1_CrossSignal(bool &buy,bool &sell)
+{
+   buy=false; sell=false;
+   if(!InpUseSMMA_H1_Cross) return false;
+   
+   double smma50_1[], smma50_2[], smma200_1[], smma200_2[];
+   ArraySetAsSeries(smma50_1,true); ArraySetAsSeries(smma50_2,true);
+   ArraySetAsSeries(smma200_1,true); ArraySetAsSeries(smma200_2,true);
+   
+   if(CopyBuffer(hSMMA50_H1,0,1,2,smma50_1)<2) return false;
+   if(CopyBuffer(hSMMA200_H1,0,1,2,smma200_1)<2) return false;
+   
+   // Cross bullish: SMMA50[prev] <= SMMA200[prev] && SMMA50[curr] > SMMA200[curr]
+   buy  = (smma50_1[1] <= smma200_1[1] && smma50_1[0] > smma200_1[0]);
+   // Cross bearish: SMMA50[prev] >= SMMA200[prev] && SMMA50[curr] < SMMA200[curr]  
+   sell = (smma50_1[1] >= smma200_1[1] && smma50_1[0] < smma200_1[0]);
+   
+   return true;
+}
+
+// [ADDED] MACD Combined Signal (Histogram OR Line/Signal)
+bool GetMACD_CombinedSignal(bool &buy,bool &sell)
+{
+   buy=false; sell=false;
+   
+   // Option C: Histogram OU Line/Signal
+   bool histBuy=false, histSell=false;
+   bool crossBuy=false, crossSell=false;
+   
+   GetMACD_HistSignal(histBuy, histSell);
+   GetMACD_CrossSignal(crossBuy, crossSell);
+   
+   buy  = (histBuy  || crossBuy);   // L'un OU l'autre
+   sell = (histSell || crossSell);  // L'un OU l'autre
+   
    return true;
 }
 
@@ -327,28 +373,40 @@ void TryOpenTrade()
    // [ADDED] RSI Filter - bloque si conditions non respectées
    if(!IsRSIFilterOK()) return;
 
-   // [CHANGED] Scoring 4 conditions (SMMA + EMA + MACD_hist + MACD_cross) + filtre SMMA directionnel
+   // [CHANGED] Scoring 5 conditions + nouvelles règles obligatoires
 int scoreBuy=0, scoreSell=0;
 
-// 1) SMMA50 H4 tendance
+// === OBLIGATIONS: EMA + MACD ===
+bool emaB=false, emaS=false; GetEMACrossSignal(emaB, emaS);
+bool macdCombinedB=false, macdCombinedS=false; GetMACD_CombinedSignal(macdCombinedB, macdCombinedS);
+
+// Si EMA ET MACD pas tous les deux vrais -> STOP
+if(!emaB && !macdCombinedB) return;  // Pas de signal BUY possible
+if(!emaS && !macdCombinedS) return;  // Pas de signal SELL possible
+
+// === FILTRES ===
+// 1) SMMA50 H4 tendance (FILTRE - bloque à contre-tendance)
 int tdir = TrendDir_SMMA50(); // +1/-1/0
+if(InpUseSMMA50Trend){
+   if(tdir==0) return; // neutre -> pas d'entrée
+}
+
+// === SCORING (conditions supplémentaires) ===
+// 2) EMA21/55 cross (déjà vérifié comme obligatoire)
+if(emaB) scoreBuy++; if(emaS) scoreSell++;
+
+// 3) MACD Combined (déjà vérifié comme obligatoire)
+if(macdCombinedB) scoreBuy++; if(macdCombinedS) scoreSell++;
+
+// 4) SMMA50 H4 direction (points bonus)
 if(InpUseSMMA50Trend){
    if(tdir>0) scoreBuy++;
    else if(tdir<0) scoreSell++;
-   else return; // neutre -> pas d'entrée
 }
 
-// 2) EMA21/55 cross
-bool emaB=false, emaS=false; GetEMACrossSignal(emaB, emaS);
-if(emaB) scoreBuy++; if(emaS) scoreSell++;
-
-// 3) MACD histogramme
-bool mhB=false, mhS=false; GetMACD_HistSignal(mhB, mhS);
-if(mhB) scoreBuy++; if(mhS) scoreSell++;
-
-// 4) MACD croisement lignes
-bool mcB=false, mcS=false; GetMACD_CrossSignal(mcB, mcS);
-if(mcB) scoreBuy++; if(mcS) scoreSell++;
+// 5) SMMA H1 50/200 crossover (points bonus)
+bool smmaH1B=false, smmaH1S=false; GetSMMA_H1_CrossSignal(smmaH1B, smmaH1S);
+if(smmaH1B) scoreBuy++; if(smmaH1S) scoreSell++;
 
 bool allowBuy  = (!InpUseSMMA50Trend || tdir>0);
 bool allowSell = (!InpUseSMMA50Trend || tdir<0);
@@ -462,6 +520,12 @@ int OnInit()
    hSMAslow=iMA(sym,InpSignalTF,InpMACD_Slow,0,MODE_SMA,PRICE_CLOSE);
    if(InpUseSMMA50Trend) hSMMA50 = iMA(sym, InpSMMA_TF, InpSMMA_Period, 0, MODE_SMMA, PRICE_CLOSE);
    
+   // [ADDED] Initialize SMMA H1 handles
+   if(InpUseSMMA_H1_Cross) {
+      hSMMA50_H1 = iMA(sym, PERIOD_H1, InpSMMA50_H1_Period, 0, MODE_SMMA, PRICE_CLOSE);
+      hSMMA200_H1 = iMA(sym, PERIOD_H1, InpSMMA200_H1_Period, 0, MODE_SMMA, PRICE_CLOSE);
+   }
+   
    // [ADDED] Initialize RSI handle
    if(InpUseRSI) {
       rsi_handle = iRSI(sym, InpRSITF, InpRSIPeriod, PRICE_CLOSE);
@@ -471,7 +535,9 @@ int OnInit()
       }
    }
    
-   if(hEMA21==INVALID_HANDLE || hEMA55==INVALID_HANDLE || hSMAfast==INVALID_HANDLE || hSMAslow==INVALID_HANDLE || (InpUseSMMA50Trend && hSMMA50==INVALID_HANDLE)){
+   if(hEMA21==INVALID_HANDLE || hEMA55==INVALID_HANDLE || hSMAfast==INVALID_HANDLE || hSMAslow==INVALID_HANDLE || 
+      (InpUseSMMA50Trend && hSMMA50==INVALID_HANDLE) ||
+      (InpUseSMMA_H1_Cross && (hSMMA50_H1==INVALID_HANDLE || hSMMA200_H1==INVALID_HANDLE))){
       Print("Erreur: handle indicateur invalide"); return INIT_FAILED;
    }
    return INIT_SUCCEEDED;
@@ -492,6 +558,8 @@ void OnDeinit(const int reason)
    if(hSMAfast!=INVALID_HANDLE) IndicatorRelease(hSMAfast);
    if(hSMAslow!=INVALID_HANDLE) IndicatorRelease(hSMAslow);
    if(hSMMA50 !=INVALID_HANDLE) IndicatorRelease(hSMMA50);
+   if(hSMMA50_H1 !=INVALID_HANDLE) IndicatorRelease(hSMMA50_H1);
+   if(hSMMA200_H1 !=INVALID_HANDLE) IndicatorRelease(hSMMA200_H1);
    if(rsi_handle!=INVALID_HANDLE) IndicatorRelease(rsi_handle);
    
    Print("✅ OnDeinit: Handles libérés");
