@@ -1,25 +1,18 @@
 //+------------------------------------------------------------------+
-//| POSEIDON EA - VERSION DEBUG CSV (Résolution problème export)    |
-//| Diagnostic + Solution pour fichiers CSV non créés               |
+//|                        Poseidon_DIAGNOSTIC_VERSION              |
+//|  VERSION SPÉCIALE POUR DIAGNOSTIQUER POURQUOI AUCUN TRADE       |
 //+------------------------------------------------------------------+
 #property strict
-#property copyright "Poseidon Trading System - CSV Debug"
-#property version   "2.1"
 #include <Trade/Trade.mqh>
 
 CTrade Trade;
 
-//======================== INPUTS PRINCIPAUX ========================
+//======================== Inputs utilisateur ========================
 input long     InpMagic                = 20250811;
 input bool     InpAllowBuys            = true;
 input bool     InpAllowSells           = true;
 
-// --- Export CSV (FORCÉ ON pour debug) ---
-input bool     InpExportCSV            = true;        // Activer export CSV
-input string   InpCSVPrefix            = "Poseidon";  // Préfixe fichiers CSV
-input bool     InpForceCSVDebug        = true;        // NOUVEAU: Debug forcé
-
-// --- Signaux ---
+// --- Choix des signaux ---
 enum SignalMode { EMA_OR_MACD=0, EMA_ONLY=1, MACD_ONLY=2 };
 input SignalMode InpSignalMode         = EMA_OR_MACD;
 input bool     InpUseEMA_Cross         = true;
@@ -30,7 +23,7 @@ input int      InpMACD_Fast            = 20;
 input int      InpMACD_Slow            = 45;
 input int      InpMACD_Signal          = 15;
 
-// --- Risque ---
+// --- Risque / gestion ---
 input double InpRiskPercent        = 1.0;
 input bool   UseLossStreakReduction = true;
 input int    LossStreakTrigger      = 7;
@@ -38,51 +31,36 @@ input double LossStreakFactor       = 0.50;
 input bool   UseFixedRiskMoney = true;
 input double FixedRiskMoney     = 100.0;
 input double ReducedRiskMoney   = 50.0;
-
 input double InpSL_PercentOfPrice  = 0.25;
 input double InpTP_PercentOfPrice  = 1.25;
 input double InpBE_TriggerPercent  = 0.70;
 input int    InpMaxTradesPerDay    = 2;
 
-// --- Session Trading ---
-input bool     InpUseSessionFilter     = true;
-enum SessionMode { ASIA=0, LONDON=1, NY=2, CUSTOM=3 };
-input SessionMode InpSessionMode       = LONDON;
-input int      InpCustomStartHour      = 6;
-input int      InpCustomEndHour        = 15;
-input int      InpBrokerGMTOffset      = 2;
-input bool     InpUseAutoDST          = true;
-input bool     InpAllowOvernightPos    = false;
-input bool     InpFlattenAtSessionEnd  = true;
-
-// --- Jours autorisés ---
-input bool     InpTrade_Monday         = true;
-input bool     InpTrade_Tuesday        = true;
-input bool     InpTrade_Wednesday      = true;
-input bool     InpTrade_Thursday       = true;
-input bool     InpTrade_Friday         = true;
-input bool     InpTrade_Saturday       = false;
-input bool     InpTrade_Sunday         = false;
-
-// --- Indicateurs ---
+// --- Fenêtre d'ouverture ---
 input ENUM_TIMEFRAMES InpSignalTF      = PERIOD_H1;
+input int      InpSessionStartHour     = 6;
+input int      InpSessionEndHour       = 15;
+input int      InpSlippagePoints       = 20;
+input bool     InpVerboseLogs          = true;  // 🔧 FORCÉ À TRUE
+
+// === CONDITIONS DE SCORING ===
 input bool InpUseSMMA50Trend    = true;
 input int  InpSMMA_Period       = 50;
 input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;
-input int  InpMinConditions     = 3;
+input int  InpMinConditions     = 3;  // ⚠️ CRITQUE : 3 conditions minimum
 
-// --- RSI Filter ---
-input bool InpUseRSI = true;
+// === RSI Filter ===
+input bool InpUseRSI = true;  // ⚠️ CRITIQUE : Peut bloquer
 input ENUM_TIMEFRAMES InpRSITF = PERIOD_H4;
 input int InpRSIPeriod = 14;
-input int InpRSIOverbought = 70;
-input int InpRSIOversold = 25;
+input int InpRSIOverbought = 70;  // ⚠️ CRITIQUE : Seuils restrictifs
+input int InpRSIOversold = 25;    // ⚠️ CRITIQUE : Seuils restrictifs
 input bool InpRSIBlockEqual = true;
 
-// --- Mois autorisés ---
-input bool InpTrade_Janvier   = false;
-input bool InpTrade_Fevrier   = false;
-input bool InpTrade_Mars      = false;
+//=== Month Filter ===
+input bool InpTrade_Janvier   = false;  // ⚠️ CRITIQUE : DÉSACTIVÉ
+input bool InpTrade_Fevrier   = false;  // ⚠️ CRITIQUE : DÉSACTIVÉ
+input bool InpTrade_Mars      = false;  // ⚠️ CRITIQUE : DÉSACTIVÉ
 input bool InpTrade_Avril     = true;
 input bool InpTrade_Mai       = true;
 input bool InpTrade_Juin      = true;
@@ -93,16 +71,13 @@ input bool InpTrade_Octobre   = true;
 input bool InpTrade_Novembre  = true;
 input bool InpTrade_Decembre  = true;
 
-input int      InpSlippagePoints       = 20;
-input bool     InpVerboseLogs          = true;  // FORCÉ ON pour debug
-
-//======================== VARIABLES GLOBALES ========================
+//======================== Variables ========================
 datetime lastBarTime=0;
 string   sym; int dig; double pt;
 int tradedDay=-1, tradesCountToday=0;
 int gLossStreak = 0;
 
-// Handles indicateurs
+// Handles
 int hEMA21=-1, hEMA55=-1;
 int hSMAfast=-1, hSMAslow=-1;
 int hSMMA50 = -1;
@@ -110,381 +85,698 @@ int rsi_handle = INVALID_HANDLE;
 double rsi_val = EMPTY_VALUE;
 datetime rsi_last_bar_time = 0;
 
-// === VARIABLES CSV EXPORT (SIMPLIFIÉES) ===
-string csvTradesFile = "";
-string csvSignalsFile = "";
-string csvStatsFile = "";
-int signalCounter = 0;
-int tradesCounter = 0;
-bool csvInitialized = false;
+// Variables de diagnostic
+static int debug_tick_count = 0;
+static bool debug_init_complete = false;
 
-//======================== STRUCTURES POUR LOGGING ========================
-struct TradeRecord
-{
-   datetime openTime;
-   string   symbol;
-   int      type;
-   double   volume;
-   double   openPrice;
-   double   sl;
-   double   tp;
-   double   profit;
-   string   comment;
-};
-
-struct SignalRecord
-{
-   datetime time;
-   string   symbol;
-   int      signal;
-   double   price;
-   string   reason;
-};
-
-//======================== FONCTIONS CSV SIMPLIFIÉES (DEBUG) ========================
-
-bool TestFileWritePermissions()
-{
-   string testFile = "TEST_PERMISSIONS.txt";
-   int handle = FileOpen(testFile, FILE_WRITE|FILE_TXT);
-   
-   if(handle == INVALID_HANDLE)
+//======================== Utils Temps ======================
+bool IsNewBar()
+{ 
+   datetime ct=iTime(sym, InpSignalTF, 0); 
+   if(ct!=lastBarTime)
    {
-      Print("[CSV ERROR] Impossible d'écrire fichier test. Error: ", GetLastError());
+      lastBarTime=ct; 
+      PrintFormat("🔹 [DEBUG] NOUVELLE BARRE détectée à %s", TimeToString(ct));
+      return true;
+   } 
+   return false; 
+}
+
+void ResetDayIfNeeded()
+{ 
+   MqlDateTime t; 
+   TimeToStruct(TimeCurrent(), t); 
+   if(tradedDay!=t.day_of_year)
+   { 
+      tradedDay=t.day_of_year; 
+      tradesCountToday=0; 
+      PrintFormat("🔹 [DEBUG] NOUVEAU JOUR détecté: %d, trades remis à 0", t.day_of_year);
+   } 
+}
+
+bool CanOpenToday()
+{ 
+   ResetDayIfNeeded(); 
+   bool can = tradesCountToday<InpMaxTradesPerDay;
+   if(!can) PrintFormat("❌ [DEBUG] MAX TRADES atteint: %d/%d", tradesCountToday, InpMaxTradesPerDay);
+   return can;
+}
+
+void MarkTradeOpened(){ ResetDayIfNeeded(); tradesCountToday++; }
+
+bool InEntryWindow()
+{
+   MqlDateTime t; 
+   TimeToStruct(TimeCurrent(), t);
+   bool inWindow;
+   
+   if(InpSessionStartHour<=InpSessionEndHour)
+      inWindow = (t.hour>=InpSessionStartHour && t.hour<InpSessionEndHour);
+   else
+      inWindow = (t.hour>=InpSessionStartHour || t.hour<InpSessionEndHour);
+   
+   if(!inWindow) 
+      PrintFormat("❌ [DEBUG] HORS FENÊTRE TRADING: %02d:%02d (session %d-%d)", t.hour, t.min, InpSessionStartHour, InpSessionEndHour);
+   
+   return inWindow;
+}
+
+//======================== Indicateurs ======================
+bool GetEMAs(double &e21_1,double &e55_1,double &e21_2,double &e55_2)
+{
+   double b21[],b55[]; 
+   ArraySetAsSeries(b21,true); 
+   ArraySetAsSeries(b55,true);
+   
+   if(CopyBuffer(hEMA21,0,1,2,b21)<2) 
+   {
+      Print("❌ [DEBUG] Erreur CopyBuffer EMA21");
+      return false;
+   }
+   if(CopyBuffer(hEMA55,0,1,2,b55)<2) 
+   {
+      Print("❌ [DEBUG] Erreur CopyBuffer EMA55");
       return false;
    }
    
-   FileWrite(handle, "Test permissions OK");
-   FileClose(handle);
-   
-   Print("[CSV OK] Permissions d'écriture vérifiées");
-   FileDelete(testFile); // Nettoyer
+   e21_1=b21[0]; e21_2=b21[1]; e55_1=b55[0]; e55_2=b55[1];
    return true;
 }
 
-void InitializeCSVFiles_Debug()
+bool GetMACD_SMA(double &macd_1,double &sig_1,double &macd_2,double &sig_2)
 {
-   Print("[CSV DEBUG] === DÉBUT INITIALISATION CSV ===");
+   int need = MathMax(MathMax(InpMACD_Fast, InpMACD_Slow), InpMACD_Signal) + 5;
+   double fast[], slow[];
+   ArraySetAsSeries(fast,true); ArraySetAsSeries(slow,true);
    
-   if(!InpExportCSV && !InpForceCSVDebug)
+   if(CopyBuffer(hSMAfast,0,1,need,fast) < need) 
    {
-      Print("[CSV DEBUG] Export CSV désactivé");
-      return;
+      Print("❌ [DEBUG] Erreur CopyBuffer SMA Fast");
+      return false;
    }
-   
-   // Test permissions d'abord
-   if(!TestFileWritePermissions())
+   if(CopyBuffer(hSMAslow,0,1,need,slow) < need) 
    {
-      Print("[CSV ERROR] Permissions fichiers échouées - ARRÊT");
-      return;
+      Print("❌ [DEBUG] Erreur CopyBuffer SMA Slow");
+      return false;
    }
-   
-   MqlDateTime dt;
-   TimeToStruct(TimeCurrent(), dt);
-   
-   // Noms de fichiers SIMPLIFIÉS
-   csvTradesFile = StringFormat("%s_Trades.csv", InpCSVPrefix);
-   csvSignalsFile = StringFormat("%s_Signals.csv", InpCSVPrefix);
-   csvStatsFile = StringFormat("%s_Stats.csv", InpCSVPrefix);
-   
-   Print("[CSV DEBUG] Noms fichiers:");
-   Print("- Trades: ", csvTradesFile);
-   Print("- Signals: ", csvSignalsFile);
-   Print("- Stats: ", csvStatsFile);
-   
-   // === CRÉATION FICHIER TRADES ===
-   int handle = FileOpen(csvTradesFile, FILE_WRITE|FILE_CSV);
-   if(handle == INVALID_HANDLE)
+
+   double macdArr[]; ArrayResize(macdArr, need);
+   for(int i=0;i<need;i++) macdArr[i] = fast[i] - slow[i];
+
+   double sigArr[]; ArrayResize(sigArr, need);
+   int p = InpMACD_Signal;
+   double acc=0;
+   for(int i=0;i<need;i++)
    {
-      Print("[CSV ERROR] Impossible créer ", csvTradesFile, " Error: ", GetLastError());
-      return;
+      acc += macdArr[i];
+      if(i>=p) acc -= macdArr[i-p];
+      if(i>=p-1) sigArr[i] = acc / p; else sigArr[i] = macdArr[i];
    }
-   
-   FileWrite(handle, "TradeID", "Time", "Symbol", "Type", "Volume", "Price", "SL", "TP", "Profit", "Comment");
-   FileClose(handle);
-   Print("[CSV OK] Fichier trades créé: ", csvTradesFile);
-   
-   // === CRÉATION FICHIER SIGNALS ===
-   handle = FileOpen(csvSignalsFile, FILE_WRITE|FILE_CSV);
-   if(handle == INVALID_HANDLE)
-   {
-      Print("[CSV ERROR] Impossible créer ", csvSignalsFile, " Error: ", GetLastError());
-      return;
-   }
-   
-   FileWrite(handle, "SignalID", "Time", "Symbol", "Signal", "Price", "Reason");
-   FileClose(handle);
-   Print("[CSV OK] Fichier signals créé: ", csvSignalsFile);
-   
-   // Test écriture immédiate
-   WriteTestSignal();
-   
-   csvInitialized = true;
-   Print("[CSV DEBUG] === INITIALISATION CSV TERMINÉE ===");
+
+   macd_1 = macdArr[0]; sig_1  = sigArr[0];
+   macd_2 = macdArr[1]; sig_2  = sigArr[1];
+   return true;
 }
 
-void WriteTestSignal()
+//======================== Helpers SMMA/EMA/MACD ========================
+bool GetSMMA50(double &out_smma)
 {
-   Print("[CSV DEBUG] Écriture signal de test...");
-   
-   int handle = FileOpen(csvSignalsFile, FILE_WRITE|FILE_CSV);
-   if(handle == INVALID_HANDLE)
+   if(!InpUseSMMA50Trend) return false;
+   if(hSMMA50==INVALID_HANDLE) return false;
+   double b[]; ArraySetAsSeries(b,true);
+   if(CopyBuffer(hSMMA50,0,0,1,b)<1) 
    {
-      Print("[CSV ERROR] Impossible ouvrir ", csvSignalsFile, " pour test. Error: ", GetLastError());
-      return;
+      Print("❌ [DEBUG] Erreur CopyBuffer SMMA50");
+      return false;
    }
-   
-   FileSeek(handle, 0, SEEK_END);
-   FileWrite(handle, 0, TimeToString(TimeCurrent()), sym, "TEST", SymbolInfoDouble(sym, SYMBOL_BID), "Test initialization");
-   FileClose(handle);
-   
-   Print("[CSV OK] Signal de test écrit");
+   out_smma = b[0];
+   return true;
 }
 
-void LogSignalToCSV_Simple(const SignalRecord &signal)
+int TrendDir_SMMA50()
 {
-   if(!csvInitialized || csvSignalsFile == "")
-   {
-      Print("[CSV WARNING] CSV non initialisé pour signal");
-      return;
-   }
+   if(!InpUseSMMA50Trend) return 0;
+   double smma=0.0; 
+   if(!GetSMMA50(smma)) return 0;
+   double bid=SymbolInfoDouble(sym,SYMBOL_BID), ask=SymbolInfoDouble(sym,SYMBOL_ASK);
+   double px=(bid+ask)*0.5;
    
-   int handle = FileOpen(csvSignalsFile, FILE_WRITE|FILE_CSV);
-   if(handle == INVALID_HANDLE)
-   {
-      Print("[CSV ERROR] Impossible ouvrir ", csvSignalsFile, " Error: ", GetLastError());
-      return;
-   }
+   int dir = 0;
+   if(px>smma) dir = +1;
+   else if(px<smma) dir = -1;
    
-   FileSeek(handle, 0, SEEK_END);
-   
-   string signalStr = "NONE";
-   if(signal.signal == 1) signalStr = "BUY";
-   else if(signal.signal == -1) signalStr = "SELL";
-   
-   FileWrite(handle,
-      signalCounter++,
-      TimeToString(signal.time, TIME_DATE|TIME_MINUTES),
-      signal.symbol,
-      signalStr,
-      DoubleToString(signal.price, dig),
-      signal.reason
-   );
-   FileClose(handle);
-   
-   Print("[CSV OK] Signal logué: ", signalStr, " à ", signal.price);
+   PrintFormat("🔹 [DEBUG] SMMA50: %.5f, Prix: %.5f, Direction: %s", 
+               smma, px, (dir>0?"HAUSSIER":(dir<0?"BAISSIER":"NEUTRE")));
+   return dir;
 }
 
-void LogTradeToCSV_Simple(const TradeRecord &trade)
+bool GetEMACrossSignal(bool &buy,bool &sell)
 {
-   if(!csvInitialized || csvTradesFile == "")
-   {
-      Print("[CSV WARNING] CSV non initialisé pour trade");
-      return;
-   }
+   buy=false; sell=false;
+   double e21_1,e55_1,e21_2,e55_2;
+   if(!GetEMAs(e21_1,e55_1,e21_2,e55_2)) return false;
    
-   int handle = FileOpen(csvTradesFile, FILE_WRITE|FILE_CSV);
-   if(handle == INVALID_HANDLE)
-   {
-      Print("[CSV ERROR] Impossible ouvrir ", csvTradesFile, " Error: ", GetLastError());
-      return;
-   }
+   buy  = (e21_2<=e55_2 && e21_1>e55_1);
+   sell = (e21_2>=e55_2 && e21_1<e55_1);
    
-   FileSeek(handle, 0, SEEK_END);
+   if(buy || sell)
+      PrintFormat("🔹 [DEBUG] EMA Cross: %s (EMA21: %.5f->%.5f, EMA55: %.5f->%.5f)", 
+                  (buy?"BUY":(sell?"SELL":"NONE")), e21_2, e21_1, e55_2, e55_1);
    
-   string typeStr = (trade.type == 0) ? "BUY" : "SELL";
-   
-   FileWrite(handle,
-      tradesCounter++,
-      TimeToString(trade.openTime, TIME_DATE|TIME_MINUTES),
-      trade.symbol,
-      typeStr,
-      DoubleToString(trade.volume, 2),
-      DoubleToString(trade.openPrice, dig),
-      DoubleToString(trade.sl, dig),
-      DoubleToString(trade.tp, dig),
-      DoubleToString(trade.profit, 2),
-      trade.comment
-   );
-   FileClose(handle);
-   
-   Print("[CSV OK] Trade logué: ", typeStr, " ", trade.volume, " lots à ", trade.openPrice);
+   return true;
 }
 
-void ExportFinalStats()
+bool GetMACD_CrossSignal(bool &buy,bool &sell)
 {
-   if(!csvInitialized) return;
+   buy=false; sell=false;
+   double m1,s1,m2,s2;
+   if(!GetMACD_SMA(m1,s1,m2,s2)) return false;
    
-   Print("[CSV DEBUG] Export stats finales...");
+   buy  = (m2<=s2 && m1>s1);
+   sell = (m2>=s2 && m1<s1);
    
-   int handle = FileOpen(csvStatsFile, FILE_WRITE|FILE_CSV);
-   if(handle != INVALID_HANDLE)
-   {
-      FileWrite(handle, "Metric", "Value");
-      FileWrite(handle, "Symbol", sym);
-      FileWrite(handle, "Magic", InpMagic);
-      FileWrite(handle, "Signals Generated", signalCounter);
-      FileWrite(handle, "Trades Logged", tradesCounter);
-      FileWrite(handle, "Export Time", TimeToString(TimeCurrent()));
-      FileClose(handle);
-      
-      Print("[CSV OK] Stats exportées: ", csvStatsFile);
-   }
-   else
-   {
-      Print("[CSV ERROR] Impossible créer stats file");
-   }
+   if(buy || sell)
+      PrintFormat("🔹 [DEBUG] MACD Cross: %s (MACD: %.6f->%.6f, Signal: %.6f->%.6f)", 
+                  (buy?"BUY":(sell?"SELL":"NONE")), m2, m1, s2, s1);
+   
+   return true;
 }
 
-//======================== FONCTIONS TEMPS & INDICATEURS (SIMPLIFIÉES) ========================
-bool IsNewBar()
+bool GetMACD_HistSignal(bool &buy,bool &sell)
 {
-   datetime ct=iTime(sym, InpSignalTF, 0);
-   if(ct!=lastBarTime){lastBarTime=ct; return true;}
-   return false;
+   buy=false; sell=false;
+   double m1,s1,m2,s2;
+   if(!GetMACD_SMA(m1,s1,m2,s2)) return false;
+   
+   double hist = (m1 - s1);
+   buy  = (hist > 0.0);
+   sell = (hist < 0.0);
+   
+   PrintFormat("🔹 [DEBUG] MACD Hist: %.6f (%s)", hist, (buy?"BUY":(sell?"SELL":"NEUTRE")));
+   return true;
 }
 
-bool IsSessionActive()
-{
-   if(!InpUseSessionFilter) return true;
-   
-   MqlDateTime dt;
-   TimeToStruct(TimeCurrent(), dt);
-   
-   // Logique session simplifiée
-   int hour = dt.hour;
-   return (hour >= 6 && hour <= 18); // 6h-18h simple
-}
-
+//======================== Month Filter ========================
 bool IsTradingMonth(datetime currentTime)
 {
    MqlDateTime dt;
    TimeToStruct(currentTime, dt);
    
+   bool allowed = false;
    switch(dt.mon)
    {
-      case  1: return InpTrade_Janvier;
-      case  2: return InpTrade_Fevrier;
-      case  3: return InpTrade_Mars;
-      case  4: return InpTrade_Avril;
-      case  5: return InpTrade_Mai;
-      case  6: return InpTrade_Juin;
-      case  7: return InpTrade_Juillet;
-      case  8: return InpTrade_Aout;
-      case  9: return InpTrade_Septembre;
-      case 10: return InpTrade_Octobre;
-      case 11: return InpTrade_Novembre;
-      case 12: return InpTrade_Decembre;
-      default: return false;
+      case  1: allowed = InpTrade_Janvier; break;
+      case  2: allowed = InpTrade_Fevrier; break;
+      case  3: allowed = InpTrade_Mars; break;
+      case  4: allowed = InpTrade_Avril; break;
+      case  5: allowed = InpTrade_Mai; break;
+      case  6: allowed = InpTrade_Juin; break;
+      case  7: allowed = InpTrade_Juillet; break;
+      case  8: allowed = InpTrade_Aout; break;
+      case  9: allowed = InpTrade_Septembre; break;
+      case 10: allowed = InpTrade_Octobre; break;
+      case 11: allowed = InpTrade_Novembre; break;
+      case 12: allowed = InpTrade_Decembre; break;
    }
+   
+   if(!allowed)
+      PrintFormat("❌ [DEBUG] MOIS BLOQUÉ: %s (%d) - Trading désactivé", MonthToString(dt.mon), dt.mon);
+   
+   return allowed;
 }
 
-//======================== TRADING LOGIC SIMPLIFIÉE ========================
-void TryOpenTrade_Debug()
+//======================== RSI Filter ========================
+bool IsRSIFilterOK()
 {
-   if(!IsSessionActive())
+   if(!InpUseRSI) 
    {
-      Print("[DEBUG] Hors session de trading");
-      
-      // Log signal refusé
-      SignalRecord sig;
-      sig.time = TimeCurrent();
-      sig.symbol = sym;
-      sig.signal = 0;
-      sig.price = SymbolInfoDouble(sym, SYMBOL_BID);
-      sig.reason = "Hors session";
-      LogSignalToCSV_Simple(sig);
+      PrintFormat("🔹 [DEBUG] RSI Filter DÉSACTIVÉ");
+      return true;
+   }
+   
+   datetime current_bar = iTime(sym, InpRSITF, 0);
+   if(rsi_last_bar_time == current_bar && rsi_val != EMPTY_VALUE)
+      return CheckRSILevel(rsi_val);
+   
+   double rsi_buffer[];
+   ArraySetAsSeries(rsi_buffer, true);
+   
+   if(CopyBuffer(rsi_handle, 0, 1, 1, rsi_buffer) < 1) {
+      Print("❌ [DEBUG] Erreur lecture buffer RSI");
+      return false;
+   }
+   
+   rsi_val = rsi_buffer[0];
+   rsi_last_bar_time = current_bar;
+   
+   return CheckRSILevel(rsi_val);
+}
+
+bool CheckRSILevel(double rsi)
+{
+   bool ok = true;
+   
+   if(InpRSIBlockEqual) {
+      if(rsi >= InpRSIOverbought || rsi <= InpRSIOversold) {
+         PrintFormat("❌ [DEBUG] RSI BLOQUE: %.2f (seuils: %d/%d, mode >=/<= )", 
+                     rsi, InpRSIOversold, InpRSIOverbought);
+         ok = false;
+      }
+   } else {
+      if(rsi > InpRSIOverbought || rsi < InpRSIOversold) {
+         PrintFormat("❌ [DEBUG] RSI BLOQUE: %.2f (seuils: %d/%d, mode >/<)", 
+                     rsi, InpRSIOversold, InpRSIOverbought);
+         ok = false;
+      }
+   }
+   
+   if(ok)
+      PrintFormat("✅ [DEBUG] RSI OK: %.2f", rsi);
+   
+   return ok;
+}
+
+//======================== Prix/SL/TP ========================
+void MakeSL_Init(int dir,double entry,double &sl)
+{
+   double p=InpSL_PercentOfPrice/100.0;
+   if(dir>0) sl=entry*(1.0-p); else sl=entry*(1.0+p);
+   sl=NormalizeDouble(sl,dig);
+}
+
+double LossPerLotAtSL(int dir,double entry,double sl)
+{
+   double p=0.0; 
+   bool ok = (dir>0)? OrderCalcProfit(ORDER_TYPE_BUY,sym,1.0,entry,sl,p)
+                    : OrderCalcProfit(ORDER_TYPE_SELL,sym,1.0,entry,sl,p);
+   if(ok) return MathAbs(p);
+   
+   double tv=SymbolInfoDouble(sym,SYMBOL_TRADE_TICK_VALUE);
+   double ts=SymbolInfoDouble(sym,SYMBOL_TRADE_TICK_SIZE);
+   double dist=MathAbs(entry-sl);
+   if(tv>0 && ts>0) return (dist/ts)*tv;
+   return 0.0;
+}
+
+double LotsFromRisk(int dir,double entry,double sl)
+{
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskMoney = equity*(InpRiskPercent/100.0);
+   
+   if(UseFixedRiskMoney)
+      riskMoney = FixedRiskMoney;
+
+   if(UseLossStreakReduction)
+   {
+      gLossStreak = CountConsecutiveLosses();
+      if(gLossStreak >= LossStreakTrigger)
+      {
+         if(UseFixedRiskMoney) riskMoney = ReducedRiskMoney;
+         else                  riskMoney *= LossStreakFactor;
+      }
+   }
+
+   double lossPerLot=LossPerLotAtSL(dir,entry,sl);
+   if(lossPerLot<=0) 
+   {
+      Print("❌ [DEBUG] LossPerLot = 0, impossible de calculer la taille");
+      return 0.0;
+   }
+   
+   double lots=riskMoney/lossPerLot;
+   double step=SymbolInfoDouble(sym,SYMBOL_VOLUME_STEP);
+   double minL=SymbolInfoDouble(sym,SYMBOL_VOLUME_MIN);
+   double maxL=SymbolInfoDouble(sym,SYMBOL_VOLUME_MAX);
+   
+   if(step<=0) step=0.01;
+   lots=MathFloor(lots/step)*step;
+   lots=MathMax(minL,MathMin(lots,maxL));
+   
+   PrintFormat("🔹 [DEBUG] SIZING: equity=%.2f risk$=%.2f lossPerLot=%.2f lots=%.2f",
+               equity, riskMoney, lossPerLot, lots);
+   
+   return lots;
+}
+
+//======================== Ouverture ========================
+void TryOpenTrade()
+{
+   Print("🔄 [DEBUG] === TryOpenTrade() DÉMARRAGE ===");
+   
+   // 1. Vérification fenêtre de trading
+   if(!InEntryWindow()) {
+      Print("❌ [DEBUG] SORTIE: Hors fenêtre de trading");
       return;
    }
+   Print("✅ [DEBUG] Fenêtre de trading OK");
    
-   // Signal BUY forcé pour test
-   double entry = SymbolInfoDouble(sym, SYMBOL_ASK);
-   double sl = entry * (1.0 - InpSL_PercentOfPrice/100.0);
-   double tp = entry * (1.0 + InpTP_PercentOfPrice/100.0);
+   // 2. Vérification max trades/jour
+   if(!CanOpenToday()) {
+      Print("❌ [DEBUG] SORTIE: Max trades atteint");
+      return;
+   }
+   Print("✅ [DEBUG] Max trades OK");
    
-   // Log signal généré
-   SignalRecord sig;
-   sig.time = TimeCurrent();
-   sig.symbol = sym;
-   sig.signal = 1;
-   sig.price = entry;
-   sig.reason = "Signal test debug";
-   LogSignalToCSV_Simple(sig);
+   // 3. Vérification RSI
+   if(!IsRSIFilterOK()) {
+      Print("❌ [DEBUG] SORTIE: RSI bloque");
+      return;
+   }
+   Print("✅ [DEBUG] RSI Filter OK");
+
+   // 4. Scoring des 4 conditions
+   Print("🔄 [DEBUG] === CALCUL DES SIGNAUX ===");
    
-   // Pas d'ouverture réelle en mode debug, juste logging
-   if(InpForceCSVDebug)
+   int scoreBuy=0, scoreSell=0;
+
+   // SMMA50 Trend
+   int tdir = TrendDir_SMMA50();
+   if(InpUseSMMA50Trend) {
+      if(tdir>0) {
+         scoreBuy++;
+         Print("✅ [DEBUG] SMMA50 → BUY (+1)");
+      }
+      else if(tdir<0) {
+         scoreSell++;
+         Print("✅ [DEBUG] SMMA50 → SELL (+1)");
+      }
+      else {
+         Print("❌ [DEBUG] SORTIE: SMMA50 neutre");
+         return;
+      }
+   }
+
+   // EMA21/55 Cross
+   bool emaB=false, emaS=false; 
+   if(GetEMACrossSignal(emaB, emaS)) {
+      if(emaB) {
+         scoreBuy++;
+         Print("✅ [DEBUG] EMA Cross → BUY (+1)");
+      }
+      if(emaS) {
+         scoreSell++;
+         Print("✅ [DEBUG] EMA Cross → SELL (+1)");
+      }
+   }
+
+   // MACD Histogramme
+   bool mhB=false, mhS=false; 
+   if(GetMACD_HistSignal(mhB, mhS)) {
+      if(mhB) {
+         scoreBuy++;
+         Print("✅ [DEBUG] MACD Hist → BUY (+1)");
+      }
+      if(mhS) {
+         scoreSell++;
+         Print("✅ [DEBUG] MACD Hist → SELL (+1)");
+      }
+   }
+
+   // MACD Cross
+   bool mcB=false, mcS=false; 
+   if(GetMACD_CrossSignal(mcB, mcS)) {
+      if(mcB) {
+         scoreBuy++;
+         Print("✅ [DEBUG] MACD Cross → BUY (+1)");
+      }
+      if(mcS) {
+         scoreSell++;
+         Print("✅ [DEBUG] MACD Cross → SELL (+1)");
+      }
+   }
+
+   PrintFormat("🔹 [DEBUG] SCORES FINAUX: BUY=%d, SELL=%d (min requis=%d)", scoreBuy, scoreSell, InpMinConditions);
+
+   // 5. Vérification conditions finales
+   bool allowBuy  = (!InpUseSMMA50Trend || tdir>0);
+   bool allowSell = (!InpUseSMMA50Trend || tdir<0);
+
+   int dir=0;
+   if(scoreBuy >= InpMinConditions && allowBuy && InpAllowBuys) {
+      dir=+1;
+      Print("🟢 [DEBUG] SIGNAL BUY VALIDÉ!");
+   }
+   else if(scoreSell >= InpMinConditions && allowSell && InpAllowSells && dir==0) {
+      dir=-1;
+      Print("🔴 [DEBUG] SIGNAL SELL VALIDÉ!");
+   }
+   
+   if(dir==0) {
+      PrintFormat("❌ [DEBUG] SORTIE: Aucun signal valide (BUY: %d/%d, SELL: %d/%d)", 
+                  scoreBuy, InpMinConditions, scoreSell, InpMinConditions);
+      return;
+   }
+
+   // 6. Calcul et exécution trade
+   Print("🔄 [DEBUG] === PRÉPARATION TRADE ===");
+   
+   double entry=(dir>0)? SymbolInfoDouble(sym,SYMBOL_ASK):SymbolInfoDouble(sym,SYMBOL_BID);
+   double sl; MakeSL_Init(dir,entry,sl);
+   double lots=LotsFromRisk(dir,entry,sl);
+   
+   if(lots<=0) {
+      Print("❌ [DEBUG] SORTIE: Lots calculé = 0");
+      return;
+   }
+
+   double tpPrice = (dir>0 ? entry*(1.0 + InpTP_PercentOfPrice/100.0)
+                           : entry*(1.0 - InpTP_PercentOfPrice/100.0));
+
+   PrintFormat("🔹 [DEBUG] TRADE PARAMS: %s %.2f lots @ %.5f, SL=%.5f, TP=%.5f", 
+               (dir>0?"BUY":"SELL"), lots, entry, sl, tpPrice);
+
+   Trade.SetExpertMagicNumber(InpMagic);
+   Trade.SetDeviationInPoints(InpSlippagePoints);
+   
+   string cmt="DIAGNOSTIC";
+   bool ok=(dir>0)? Trade.Buy(lots,sym,entry,sl,tpPrice,cmt)
+                  : Trade.Sell(lots,sym,entry,sl,tpPrice,cmt);
+                  
+   if(ok) {
+      MarkTradeOpened();
+      PrintFormat("🎉 [DEBUG] TRADE OUVERT AVEC SUCCÈS! %s %.2f lots", (dir>0?"BUY":"SELL"), lots);
+   } else {
+      PrintFormat("❌ [DEBUG] ERREUR OUVERTURE TRADE: %d - %s", GetLastError(), Trade.ResultComment());
+   }
+   
+   Print("🔄 [DEBUG] === TryOpenTrade() FIN ===");
+}
+
+//======================== Break Even ========================
+void ManageBreakEvenPercent(const string symbol_)
+{
+   for(int i=PositionsTotal()-1; i>=0; --i)
    {
-      Print("[DEBUG] Mode test - pas d'ouverture réelle");
-      
-      // Simuler un trade pour CSV
-      TradeRecord tr;
-      tr.openTime = TimeCurrent();
-      tr.symbol = sym;
-      tr.type = 0; // BUY
-      tr.volume = 0.01;
-      tr.openPrice = entry;
-      tr.sl = sl;
-      tr.tp = tp;
-      tr.profit = 0;
-      tr.comment = "DEBUG_TEST";
-      LogTradeToCSV_Simple(tr);
+      ulong ticket = PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=symbol_) continue;
+
+      long   type  = (long)PositionGetInteger(POSITION_TYPE);
+      double entry = PositionGetDouble (POSITION_PRICE_OPEN);
+      double sl    = PositionGetDouble (POSITION_SL);
+      double tp    = PositionGetDouble (POSITION_TP);
+      double price = (type==POSITION_TYPE_BUY)
+                     ? SymbolInfoDouble(symbol_, SYMBOL_BID)
+                     : SymbolInfoDouble(symbol_, SYMBOL_ASK);
+
+      const double beTrigger = (type==POSITION_TYPE_BUY)
+                               ? entry*(1.0 + InpBE_TriggerPercent/100.0)
+                               : entry*(1.0 - InpBE_TriggerPercent/100.0);
+      const bool condPercent = (type==POSITION_TYPE_BUY) ? (price>=beTrigger) : (price<=beTrigger);
+
+      const double R    = MathAbs(entry - sl);
+      const double move = MathAbs(price - entry);
+      const bool   cond3R = (R>0.0 && move >= 3.0*R);
+
+      if(condPercent || cond3R)
+      {
+         const int    d       = (int)SymbolInfoInteger(symbol_, SYMBOL_DIGITS);
+         const double ptLocal = SymbolInfoDouble(symbol_, SYMBOL_POINT);
+
+         double targetSL = NormalizeDouble(entry, d);
+         bool need = (type==POSITION_TYPE_BUY)  ? (sl < targetSL - 10*ptLocal)
+                                                : (sl > targetSL + 10*ptLocal);
+
+         if(need){
+            Trade.PositionModify(symbol_, targetSL, tp);
+            PrintFormat("[BE] %s entry=%.2f price=%.2f move=%.2fR sl->%.2f", 
+                        symbol_, entry, price, (R>0? move/R:0.0), targetSL);
+         }
+      }
    }
 }
 
-//======================== MAIN FUNCTIONS ========================
+//======================== OnTick - VERSION DIAGNOSTIC ========================
 void OnTick()
 {
-   // Vérification mois
-   if(!IsTradingMonth(TimeCurrent())) return;
+   debug_tick_count++;
    
+   // Debug périodique (chaque 100 ticks)
+   if(debug_tick_count % 100 == 1) {
+      MqlDateTime dt; 
+      TimeToStruct(TimeCurrent(), dt);
+      
+      PrintFormat("📊 [DEBUG PÉRIODIQUE] Tick #%d - %s %02d:%02d:%02d", 
+                  debug_tick_count, 
+                  TimeToString(TimeCurrent(), TIME_DATE),
+                  dt.hour, dt.min, dt.sec);
+                  
+      PrintFormat("📊 [DEBUG] Mois actuel: %s - Trading autorisé: %s", 
+                  MonthToString(dt.mon), 
+                  IsTradingMonth(TimeCurrent()) ? "OUI" : "NON");
+                  
+      PrintFormat("📊 [DEBUG] Positions ouvertes: %d, Orders: %d", 
+                  PositionsTotal(), OrdersTotal());
+                  
+      PrintFormat("📊 [DEBUG] Params critiques - MinConditions:%d, UseRSI:%s, UseSMMA50:%s", 
+                  InpMinConditions, 
+                  InpUseRSI ? "true" : "false",
+                  InpUseSMMA50Trend ? "true" : "false");
+   }
+
+   //=== Month Filter Guard ===============================================
+   {
+      MqlDateTime _dt; 
+      TimeToStruct(TimeCurrent(), _dt);
+      if(!IsTradingMonth(TimeCurrent()) && PositionsTotal()==0 && OrdersTotal()==0)
+      {
+         if(debug_tick_count % 500 == 1) // Log toutes les 500 ticks pour éviter spam
+            PrintFormat("⚠️ [MonthFilter] Ouverture bloquée : %s désactivé.", MonthToString(_dt.mon));
+         return;
+      }
+   }
+   //=====================================================================
+
+   ManageBreakEvenPercent(_Symbol);
+   
+   // Vérification nouvelle barre
    if(!IsNewBar()) return;
    
-   // Test CSV à chaque nouvelle barre
-   TryOpenTrade_Debug();
+   Print("🆕 [DEBUG] NOUVELLE BARRE → Appel TryOpenTrade()");
+   TryOpenTrade();
 }
 
+//======================== Events ==========================
 int OnInit()
 {
-   Print("[DEBUG] === DÉMARRAGE POSEIDON DEBUG CSV ===");
+   Print("🚀 [DEBUG] === INITIALISATION EA DIAGNOSTIC ===");
    
-   sym = _Symbol; 
-   dig = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS); 
-   pt = SymbolInfoDouble(sym, SYMBOL_POINT);
+   sym=_Symbol; 
+   dig=(int)SymbolInfoInteger(sym,SYMBOL_DIGITS); 
+   pt=SymbolInfoDouble(sym,SYMBOL_POINT);
    
-   Print("[DEBUG] Symbole: ", sym, " Digits: ", dig);
+   PrintFormat("🔹 [DEBUG] Symbole: %s, Digits: %d, Point: %.6f", sym, dig, pt);
+
+   // Initialisation des handles
+   hEMA21=iMA(sym,InpSignalTF,21,0,MODE_EMA,PRICE_CLOSE);
+   hEMA55=iMA(sym,InpSignalTF,55,0,MODE_EMA,PRICE_CLOSE);
+   hSMAfast=iMA(sym,InpSignalTF,InpMACD_Fast,0,MODE_SMA,PRICE_CLOSE);
+   hSMAslow=iMA(sym,InpSignalTF,InpMACD_Slow,0,MODE_SMA,PRICE_CLOSE);
    
-   // Initialisation IMMÉDIATE des CSV
-   InitializeCSVFiles_Debug();
+   if(InpUseSMMA50Trend) {
+      hSMMA50 = iMA(sym, InpSMMA_TF, InpSMMA_Period, 0, MODE_SMMA, PRICE_CLOSE);
+      PrintFormat("🔹 [DEBUG] SMMA50 Handle: %d", hSMMA50);
+   }
    
-   // Indicateurs basiques
-   hEMA21 = iMA(sym, InpSignalTF, 21, 0, MODE_EMA, PRICE_CLOSE);
-   hEMA55 = iMA(sym, InpSignalTF, 55, 0, MODE_EMA, PRICE_CLOSE);
+   if(InpUseRSI) {
+      rsi_handle = iRSI(sym, InpRSITF, InpRSIPeriod, PRICE_CLOSE);
+      if(rsi_handle == INVALID_HANDLE) {
+         Print("❌ [DEBUG] RSI init ÉCHEC, erreur=", GetLastError());
+         return INIT_FAILED;
+      }
+      PrintFormat("🔹 [DEBUG] RSI Handle: %d", rsi_handle);
+   }
    
-   if(hEMA21 == INVALID_HANDLE || hEMA55 == INVALID_HANDLE)
-   {
-      Print("[ERROR] Indicateurs invalides");
+   // Vérification des handles
+   if(hEMA21==INVALID_HANDLE || hEMA55==INVALID_HANDLE || 
+      hSMAfast==INVALID_HANDLE || hSMAslow==INVALID_HANDLE || 
+      (InpUseSMMA50Trend && hSMMA50==INVALID_HANDLE)) {
+      Print("❌ [DEBUG] Erreur: handle indicateur invalide");
       return INIT_FAILED;
    }
    
-   Print("[DEBUG] EA initialisé avec CSV debug activé");
-   Print("[DEBUG] Répertoire fichiers: MQL5/Files/");
-   Print("[DEBUG] === INITIALISATION TERMINÉE ===");
+   PrintFormat("✅ [DEBUG] Tous les handles créés: EMA21=%d, EMA55=%d, SMAfast=%d, SMAslow=%d", 
+               hEMA21, hEMA55, hSMAfast, hSMAslow);
+   
+   // Affichage des paramètres critiques
+   Print("🔹 [DEBUG] === PARAMÈTRES CRITIQUES ===");
+   PrintFormat("🔹 [DEBUG] InpMinConditions: %d", InpMinConditions);
+   PrintFormat("🔹 [DEBUG] InpUseRSI: %s (seuils: %d/%d)", 
+               InpUseRSI ? "ACTIVÉ" : "DÉSACTIVÉ", InpRSIOversold, InpRSIOverbought);
+   PrintFormat("🔹 [DEBUG] InpUseSMMA50Trend: %s", InpUseSMMA50Trend ? "ACTIVÉ" : "DÉSACTIVÉ");
+   PrintFormat("🔹 [DEBUG] Session trading: %02d:00-%02d:00", InpSessionStartHour, InpSessionEndHour);
+   
+   // Affichage filtres mois
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   PrintFormat("🔹 [DEBUG] Mois actuel: %s (%d) - Autorisé: %s", 
+               MonthToString(dt.mon), dt.mon, IsTradingMonth(TimeCurrent()) ? "OUI" : "NON");
+   
+   if(!IsTradingMonth(TimeCurrent())) {
+      Print("⚠️ [DEBUG] ATTENTION: Le mois actuel est DÉSACTIVÉ dans les paramètres!");
+   }
+   
+   debug_init_complete = true;
+   Print("✅ [DEBUG] === INITIALISATION TERMINÉE AVEC SUCCÈS ===");
    
    return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason)
 {
-   Print("[DEBUG] === ARRÊT EA - EXPORT FINAL ===");
+   Print("🛑 [DEBUG] === DÉINITIALISATION EA ===");
+   PrintFormat("🔹 [DEBUG] Raison: %d, Total ticks traités: %d", reason, debug_tick_count);
    
-   ExportFinalStats();
+   if(hEMA21  !=INVALID_HANDLE) IndicatorRelease(hEMA21);
+   if(hEMA55  !=INVALID_HANDLE) IndicatorRelease(hEMA55);
+   if(hSMAfast!=INVALID_HANDLE) IndicatorRelease(hSMAfast);
+   if(hSMAslow!=INVALID_HANDLE) IndicatorRelease(hSMAslow);
+   if(hSMMA50 !=INVALID_HANDLE) IndicatorRelease(hSMMA50);
+   if(rsi_handle!=INVALID_HANDLE) IndicatorRelease(rsi_handle);
    
-   if(hEMA21 != INVALID_HANDLE) IndicatorRelease(hEMA21);
-   if(hEMA55 != INVALID_HANDLE) IndicatorRelease(hEMA55);
+   Print("✅ [DEBUG] Tous les handles libérés");
+}
+
+//======================== Fonctions auxiliaires ========================
+int CountConsecutiveLosses()
+{
+   int count = 0;
+   datetime endTime = TimeCurrent();
+   datetime startTime = endTime - 86400*30; // 30 derniers jours
+
+   HistorySelect(startTime, endTime);
+   int totalDeals = HistoryDealsTotal();
+
+   for(int i = totalDeals-1; i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL) == sym &&
+         HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagic)
+      {
+         double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+         if(profit < 0) count++;
+         else break;
+      }
+   }
    
-   Print("[DEBUG] Fichiers CSV sauvegardés:");
-   Print("- ", csvTradesFile);
-   Print("- ", csvSignalsFile);
-   Print("- ", csvStatsFile);
-   Print("[DEBUG] === ARRÊT TERMINÉ ===");
+   return count;
+}
+
+string MonthToString(int month)
+{
+   switch(month)
+   {
+      case  1: return "Janvier";
+      case  2: return "Fevrier";
+      case  3: return "Mars";
+      case  4: return "Avril";
+      case  5: return "Mai";
+      case  6: return "Juin";
+      case  7: return "Juillet";
+      case  8: return "Aout";
+      case  9: return "Septembre";
+      case 10: return "Octobre";
+      case 11: return "Novembre";
+      case 12: return "Decembre";
+      default: return "Inconnu";
+   }
 }
