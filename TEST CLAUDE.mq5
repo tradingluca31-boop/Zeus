@@ -479,12 +479,22 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
+   Print("🛑 === OnDeinit appelé - Raison: ", reason, " ===");
+   
+   // BACKUP: Export aussi dans OnDeinit au cas où OnTesterDeinit ne marche pas
+   if(MQLInfoInteger(MQL_TESTER)) {
+      Print("🚀 OnDeinit: Mode testeur détecté - Lancement export de sauvegarde");
+      ExportTradeHistoryCSV();
+   }
+   
    if(hEMA21  !=INVALID_HANDLE) IndicatorRelease(hEMA21);
    if(hEMA55  !=INVALID_HANDLE) IndicatorRelease(hEMA55);
    if(hSMAfast!=INVALID_HANDLE) IndicatorRelease(hSMAfast);
    if(hSMAslow!=INVALID_HANDLE) IndicatorRelease(hSMAslow);
-   if(hSMMA50 !=INVALID_HANDLE) IndicatorRelease(hSMMA50);   // [ADDED]
-   if(rsi_handle!=INVALID_HANDLE) IndicatorRelease(rsi_handle);   // [ADDED] RSI
+   if(hSMMA50 !=INVALID_HANDLE) IndicatorRelease(hSMMA50);
+   if(rsi_handle!=INVALID_HANDLE) IndicatorRelease(rsi_handle);
+   
+   Print("✅ OnDeinit: Handles libérés");
 }
 
 
