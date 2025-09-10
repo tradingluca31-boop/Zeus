@@ -441,13 +441,7 @@ if(emaS || (sellPossible && emaPositionBearish)) scoreSell++;
 if(macdCombinedB || (buyPossible && macdPositionBullish)) scoreBuy++; 
 if(macdCombinedS || (sellPossible && macdPositionBearish)) scoreSell++;
 
-// 4) SMMA50 H4 direction (points bonus)
-if(InpUseSMMA50Trend){
-   if(tdir>0) scoreBuy++;
-   else if(tdir<0) scoreSell++;
-}
-
-// 5) SMMA H1 50/200 crossover (points bonus)
+// 4) SMMA H1 50/200 crossover (points bonus)
 bool smmaH1B=false, smmaH1S=false; GetSMMA_H1_CrossSignal(smmaH1B, smmaH1S);
 if(smmaH1B) scoreBuy++; if(smmaH1S) scoreSell++;
 
