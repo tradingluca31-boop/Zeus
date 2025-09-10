@@ -2,7 +2,7 @@
 //|                                   TEST CLAUDE - Export CSV Fix   |
 //|  Version corrigée avec export CSV fonctionnel                    |
 //|  H1 – Entrées 7:00-14:00 (serveur)                               |
-//|  Signal: EMA21/55 OU MACD(SMA 20,45,15)                          |
+//|  Signal: EMA21/55 ET MACD(SMA 20,45,15)                          |
 //|  Max 2 trades/jour, SL 0.25%, TP +500$                           |
 //|  BE (0$) dès profit >= 300$ OU move >= 3R                        |
 //|  Risque FIXE = InpRiskPercent (pas de palier / pas de séries)    |
@@ -443,15 +443,16 @@ bool emaPositionBearish = IsEMAPositionBearish();    // EMA21 < EMA55
 bool macdPositionBullish = IsMACDPositionBullish();  // MACD > Signal
 bool macdPositionBearish = IsMACDPositionBearish();  // MACD < Signal
 
-// LOGIQUE OR (confirmée fonctionnelle) - BUY: signal EMA OU signal MACD
-bool buyPossible = emaB || macdCombinedB;
-// LOGIQUE OR (confirmée fonctionnelle) - SELL: signal EMA OU signal MACD  
-bool sellPossible = emaS || macdCombinedS;
+// LOGIQUE ET DÉCALÉE - BUY: (Signal EMA OU position bullish) ET (Signal MACD OU position bullish)
+bool buyPossible = (emaB || emaPositionBullish) && (macdCombinedB || macdPositionBullish);
+// LOGIQUE ET DÉCALÉE - SELL: (Signal EMA OU position bearish) ET (Signal MACD OU position bearish)
+bool sellPossible = (emaS || emaPositionBearish) && (macdCombinedS || macdPositionBearish);
 
 if(!buyPossible && !sellPossible) {
-   Print("[DEBUG] Bloqué - Aucun signal EMA/MACD possible. EMA pos bull:", emaPositionBullish, " bear:", emaPositionBearish, " MACD pos bull:", macdPositionBullish, " bear:", macdPositionBearish);
-   Print("[DEBUG] EMA cross B:", emaB, " S:", emaS, " MACD cross B:", macdCombinedB, " S:", macdCombinedS);
-   return;  // Aucun signal possible
+   Print("[DEBUG] Bloqué - Conditions EMA ET MACD (décalées) non remplies.");
+   Print("[DEBUG] EMA: pos bull:", emaPositionBullish, " bear:", emaPositionBearish, " cross B:", emaB, " S:", emaS);
+   Print("[DEBUG] MACD: pos bull:", macdPositionBullish, " bear:", macdPositionBearish, " cross B:", macdCombinedB, " S:", macdCombinedS);
+   return;  // Conditions EMA ET MACD (décalées) non remplies
 }
 
 // === FILTRES ===
@@ -466,13 +467,13 @@ if(InpUseSMMA50Trend){
 }
 
 // === SCORING (conditions supplémentaires) ===
-// 2) Signal EMA (logique OR confirmée)
-if(emaB) scoreBuy++; 
-if(emaS) scoreSell++;
+// 2) Condition EMA (signal OU position favorable)
+if(emaB || emaPositionBullish) scoreBuy++; 
+if(emaS || emaPositionBearish) scoreSell++;
 
-// 3) Signal MACD (logique OR confirmée)
-if(macdCombinedB) scoreBuy++; 
-if(macdCombinedS) scoreSell++;
+// 3) Condition MACD (signal OU position favorable)
+if(macdCombinedB || macdPositionBullish) scoreBuy++; 
+if(macdCombinedS || macdPositionBearish) scoreSell++;
 
 // 4) SMMA H1 50/200 crossover (points bonus)
 bool smmaH1B=false, smmaH1S=false; GetSMMA_H1_CrossSignal(smmaH1B, smmaH1S);
