@@ -147,6 +147,22 @@ bool IsEMAPositionBearish()
    return (e21_1 < e55_1);
 }
 
+// Vérifie si MACD > Signal actuellement (position bullish)
+bool IsMACDPositionBullish()
+{
+   double m1, s1, m2, s2;
+   if(!GetMACD_SMA(m1, s1, m2, s2)) return false;
+   return (m1 > s1);
+}
+
+// Vérifie si MACD < Signal actuellement (position bearish)
+bool IsMACDPositionBearish()
+{
+   double m1, s1, m2, s2;
+   if(!GetMACD_SMA(m1, s1, m2, s2)) return false;
+   return (m1 < s1);
+}
+
 // Calcule MACD SMA(20,45) et son Signal SMA(15) via SMA on-price + SMA sur MACD
 bool GetMACD_SMA(double &macd_1,double &sig_1,double &macd_2,double &sig_2)
 {
@@ -396,14 +412,16 @@ int scoreBuy=0, scoreSell=0;
 bool emaB=false, emaS=false; GetEMACrossSignal(emaB, emaS);
 bool macdCombinedB=false, macdCombinedS=false; GetMACD_CombinedSignal(macdCombinedB, macdCombinedS);
 
-// Vérifier position actuelle EMA21/55 (pas seulement croisement)
-bool emaPositionBullish = IsEMAPositionBullish();  // EMA21 > EMA55
-bool emaPositionBearish = IsEMAPositionBearish();  // EMA21 < EMA55
+// Vérifier positions actuelles (pas seulement croisements)
+bool emaPositionBullish = IsEMAPositionBullish();    // EMA21 > EMA55
+bool emaPositionBearish = IsEMAPositionBearish();    // EMA21 < EMA55
+bool macdPositionBullish = IsMACDPositionBullish();  // MACD > Signal
+bool macdPositionBearish = IsMACDPositionBearish();  // MACD < Signal
 
-// Pour un BUY: soit signal EMA frais ET position bullish, soit position bullish + signal MACD
-bool buyPossible = (emaB && emaPositionBullish) || (emaPositionBullish && macdCombinedB);
-// Pour un SELL: soit signal EMA frais ET position bearish, soit position bearish + signal MACD  
-bool sellPossible = (emaS && emaPositionBearish) || (emaPositionBearish && macdCombinedS);
+// Pour un BUY: (signal EMA + position MACD bullish) OU (signal MACD + position EMA bullish)
+bool buyPossible = (emaB && macdPositionBullish) || (macdCombinedB && emaPositionBullish);
+// Pour un SELL: (signal EMA + position MACD bearish) OU (signal MACD + position EMA bearish)
+bool sellPossible = (emaS && macdPositionBearish) || (macdCombinedS && emaPositionBearish);
 
 if(!buyPossible && !sellPossible) return;  // Aucun signal possible
 
@@ -415,13 +433,13 @@ if(InpUseSMMA50Trend){
 }
 
 // === SCORING (conditions supplémentaires) ===
-// 2) Signal EMA ou position EMA favorable
+// 2) Signal EMA ou position EMA favorable (pour signaux bidirectionnels)
 if(emaB || (buyPossible && emaPositionBullish)) scoreBuy++; 
 if(emaS || (sellPossible && emaPositionBearish)) scoreSell++;
 
-// 3) Signal MACD
-if(macdCombinedB) scoreBuy++; 
-if(macdCombinedS) scoreSell++;
+// 3) Signal MACD ou position MACD favorable (pour signaux bidirectionnels)
+if(macdCombinedB || (buyPossible && macdPositionBullish)) scoreBuy++; 
+if(macdCombinedS || (sellPossible && macdPositionBearish)) scoreSell++;
 
 // 4) SMMA50 H4 direction (points bonus)
 if(InpUseSMMA50Trend){
