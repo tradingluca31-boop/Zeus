@@ -399,11 +399,20 @@ double risk=riskMoney;
 //======================== Ouverture ========================
 void TryOpenTrade()
 {
-   if(!InEntryWindow()) return;
-   if(!CanOpenToday()) return;
+   if(!InEntryWindow()) {
+      Print("[DEBUG] Bloqué - Hors fenêtre horaire"); 
+      return;
+   }
+   if(!CanOpenToday()) {
+      Print("[DEBUG] Bloqué - Limite trades/jour atteinte"); 
+      return;
+   }
    
    // [ADDED] RSI Filter - bloque si conditions non respectées
-   if(!IsRSIFilterOK()) return;
+   if(!IsRSIFilterOK()) {
+      Print("[DEBUG] Bloqué - Filtre RSI"); 
+      return;
+   }
 
    // [CHANGED] Scoring 5 conditions + nouvelles règles obligatoires
 int scoreBuy=0, scoreSell=0;
@@ -418,28 +427,36 @@ bool emaPositionBearish = IsEMAPositionBearish();    // EMA21 < EMA55
 bool macdPositionBullish = IsMACDPositionBullish();  // MACD > Signal
 bool macdPositionBearish = IsMACDPositionBearish();  // MACD < Signal
 
-// Pour un BUY: (signal EMA + position MACD bullish) OU (signal MACD + position EMA bullish)
-bool buyPossible = (emaB && macdPositionBullish) || (macdCombinedB && emaPositionBullish);
-// Pour un SELL: (signal EMA + position MACD bearish) OU (signal MACD + position EMA bearish)
-bool sellPossible = (emaS && macdPositionBearish) || (macdCombinedS && emaPositionBearish);
+// LOGIQUE OR TEMPORAIRE POUR TEST - BUY: signal EMA OU signal MACD
+bool buyPossible = emaB || macdCombinedB;
+// LOGIQUE OR TEMPORAIRE POUR TEST - SELL: signal EMA OU signal MACD  
+bool sellPossible = emaS || macdCombinedS;
 
-if(!buyPossible && !sellPossible) return;  // Aucun signal possible
+if(!buyPossible && !sellPossible) {
+   Print("[DEBUG] Bloqué - Aucun signal EMA/MACD possible. EMA pos bull:", emaPositionBullish, " bear:", emaPositionBearish, " MACD pos bull:", macdPositionBullish, " bear:", macdPositionBearish);
+   Print("[DEBUG] EMA cross B:", emaB, " S:", emaS, " MACD cross B:", macdCombinedB, " S:", macdCombinedS);
+   return;  // Aucun signal possible
+}
 
 // === FILTRES ===
 // 1) SMMA50 H4 tendance (FILTRE - bloque à contre-tendance)
 int tdir = TrendDir_SMMA50(); // +1/-1/0
 if(InpUseSMMA50Trend){
-   if(tdir==0) return; // neutre -> pas d'entrée
+   if(tdir==0) {
+      Print("[DEBUG] Bloqué - SMMA50 H4 tendance neutre");
+      return; // neutre -> pas d'entrée
+   }
+   Print("[DEBUG] SMMA50 H4 direction: ", tdir);
 }
 
 // === SCORING (conditions supplémentaires) ===
-// 2) Signal EMA ou position EMA favorable (pour signaux bidirectionnels)
-if(emaB || (buyPossible && emaPositionBullish)) scoreBuy++; 
-if(emaS || (sellPossible && emaPositionBearish)) scoreSell++;
+// 2) Signal EMA (logique OR temporaire)
+if(emaB) scoreBuy++; 
+if(emaS) scoreSell++;
 
-// 3) Signal MACD ou position MACD favorable (pour signaux bidirectionnels)
-if(macdCombinedB || (buyPossible && macdPositionBullish)) scoreBuy++; 
-if(macdCombinedS || (sellPossible && macdPositionBearish)) scoreSell++;
+// 3) Signal MACD (logique OR temporaire)
+if(macdCombinedB) scoreBuy++; 
+if(macdCombinedS) scoreSell++;
 
 // 4) SMMA H1 50/200 crossover (points bonus)
 bool smmaH1B=false, smmaH1S=false; GetSMMA_H1_CrossSignal(smmaH1B, smmaH1S);
@@ -448,10 +465,16 @@ if(smmaH1B) scoreBuy++; if(smmaH1S) scoreSell++;
 bool allowBuy  = (!InpUseSMMA50Trend || tdir>0) && buyPossible;
 bool allowSell = (!InpUseSMMA50Trend || tdir<0) && sellPossible;
 
+Print("[DEBUG] Scores - Buy:", scoreBuy, " Sell:", scoreSell, " Min requis:", InpMinConditions);
+Print("[DEBUG] Allow - Buy:", allowBuy, " Sell:", allowSell);
+
 int dir=0;
 if(scoreBuy  >= InpMinConditions && allowBuy  && InpAllowBuys)  dir=+1;
 if(scoreSell >= InpMinConditions && allowSell && InpAllowSells && dir==0) dir=-1;
-if(dir==0) return;
+if(dir==0) {
+   Print("[DEBUG] Bloqué - Score insuffisant ou direction interdite");
+   return;
+}
 
    double entry=(dir>0)? SymbolInfoDouble(sym,SYMBOL_ASK):SymbolInfoDouble(sym,SYMBOL_BID);
    double sl; MakeSL_Init(dir,entry,sl);
@@ -468,9 +491,15 @@ double tpPrice = (dir>0 ? entry*(1.0 + InpTP_PercentOfPrice/100.0)
    Trade.SetDeviationInPoints(InpSlippagePoints);
    string cmt="BASE";
    if(UseLossStreakReduction && gLossStreak >= LossStreakTrigger) cmt="RISK-REDUCED";   // [ADDED]
+   Print("[DEBUG] TENTATIVE TRADE - Dir:", dir, " Lots:", lots, " Entry:", entry, " SL:", sl, " TP:", tpPrice);
    bool ok=(dir>0)? Trade.Buy(lots,sym,entry,sl,tpPrice,cmt)
                   : Trade.Sell(lots,sym,entry,sl,tpPrice,cmt);
-   if(ok) MarkTradeOpened();
+   if(ok) {
+      Print("[DEBUG] ✅ TRADE OUVERT!");
+      MarkTradeOpened();
+   } else {
+      Print("[DEBUG] ❌ ECHEC OUVERTURE TRADE - Code:", GetLastError());
+   }
 }
 
 //======================== Gestion BE =======================
@@ -531,7 +560,7 @@ void OnTick()
       TimeToStruct(TimeCurrent(), _dt);
       if(!IsTradingMonth(TimeCurrent()) && PositionsTotal()==0 && OrdersTotal()==0)
       {
-         PrintFormat("[MonthFilter] Ouverture bloquee : %s desactive.", MonthToString(_dt.mon));
+         PrintFormat("[DEBUG] [MonthFilter] Ouverture bloquee : %s desactive.", MonthToString(_dt.mon));
          return;
       }
    }
