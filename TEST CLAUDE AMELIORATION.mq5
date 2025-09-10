@@ -17,6 +17,10 @@ input long     InpMagic                = 20250811;
 input bool     InpAllowBuys            = true;
 input bool     InpAllowSells           = true;
 
+// --- Choix des symboles ---
+input bool     InpTradeGold            = true;   // Trader XAUUSD (Or)
+input bool     InpTradeSilver          = true;   // Trader XAGUSD (Argent)
+
 // --- Choix des signaux ---
 enum SignalMode { EMA_AND_MACD=0, EMA_ONLY=1, MACD_ONLY=2 };
 input SignalMode InpSignalMode         = EMA_AND_MACD; // "ET" par défaut
@@ -108,6 +112,14 @@ double rsi_val = EMPTY_VALUE;
 datetime rsi_last_bar_time = 0;
 //======================== Utils Temps ======================
 bool IsNewBar(){ datetime ct=iTime(sym, InpSignalTF, 0); if(ct!=lastBarTime){lastBarTime=ct; return true;} return false; }
+
+// Vérifie si on doit trader le symbole actuel
+bool ShouldTradeSymbol(string symbol)
+{
+   if(symbol == "XAUUSD" && InpTradeGold) return true;
+   if(symbol == "XAGUSD" && InpTradeSilver) return true;
+   return false;
+}
 
 void ResetDayIfNeeded(){ MqlDateTime t; TimeToStruct(TimeCurrent(), t); if(tradedDay!=t.day_of_year){ tradedDay=t.day_of_year; tradesCountToday=0; } }
 bool CanOpenToday(){ ResetDayIfNeeded(); return tradesCountToday<InpMaxTradesPerDay; }
@@ -399,6 +411,10 @@ double risk=riskMoney;
 //======================== Ouverture ========================
 void TryOpenTrade()
 {
+   if(!ShouldTradeSymbol(sym)) {
+      Print("[DEBUG] Symbole ", sym, " non autorisé pour le trading");
+      return;
+   }
    if(!InEntryWindow()) {
       Print("[DEBUG] Bloqué - Hors fenêtre horaire"); 
       return;
@@ -427,9 +443,9 @@ bool emaPositionBearish = IsEMAPositionBearish();    // EMA21 < EMA55
 bool macdPositionBullish = IsMACDPositionBullish();  // MACD > Signal
 bool macdPositionBearish = IsMACDPositionBearish();  // MACD < Signal
 
-// LOGIQUE OR TEMPORAIRE POUR TEST - BUY: signal EMA OU signal MACD
+// LOGIQUE OR (confirmée fonctionnelle) - BUY: signal EMA OU signal MACD
 bool buyPossible = emaB || macdCombinedB;
-// LOGIQUE OR TEMPORAIRE POUR TEST - SELL: signal EMA OU signal MACD  
+// LOGIQUE OR (confirmée fonctionnelle) - SELL: signal EMA OU signal MACD  
 bool sellPossible = emaS || macdCombinedS;
 
 if(!buyPossible && !sellPossible) {
@@ -450,11 +466,11 @@ if(InpUseSMMA50Trend){
 }
 
 // === SCORING (conditions supplémentaires) ===
-// 2) Signal EMA (logique OR temporaire)
+// 2) Signal EMA (logique OR confirmée)
 if(emaB) scoreBuy++; 
 if(emaS) scoreSell++;
 
-// 3) Signal MACD (logique OR temporaire)
+// 3) Signal MACD (logique OR confirmée)
 if(macdCombinedB) scoreBuy++; 
 if(macdCombinedS) scoreSell++;
 
@@ -551,6 +567,52 @@ void ManageBreakEvenPercent(const string symbol_)   // nom changé pour ne pas m
    }
 }
 
+// Traite tous les symboles autorisés
+void ProcessAllSymbols()
+{
+   string symbols_to_trade[];
+   int count = 0;
+   
+   if(InpTradeGold) {
+      ArrayResize(symbols_to_trade, count + 1);
+      symbols_to_trade[count] = "XAUUSD";
+      count++;
+   }
+   
+   if(InpTradeSilver) {
+      ArrayResize(symbols_to_trade, count + 1);
+      symbols_to_trade[count] = "XAGUSD";
+      count++;
+   }
+   
+   // Traiter chaque symbole
+   for(int i = 0; i < count; i++) {
+      string current_symbol = symbols_to_trade[i];
+      
+      // Changer temporairement vers ce symbole
+      string original_sym = sym;
+      sym = current_symbol;
+      dig = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+      pt = SymbolInfoDouble(sym, SYMBOL_POINT);
+      
+      // Vérifier si nouvelle barre pour ce symbole
+      datetime ct = iTime(sym, InpSignalTF, 0);
+      static datetime lastBarTimes[];
+      ArrayResize(lastBarTimes, count);
+      
+      if(i < ArraySize(lastBarTimes) && ct != lastBarTimes[i]) {
+         lastBarTimes[i] = ct;
+         Print("[DEBUG] Traitement symbole: ", sym);
+         TryOpenTrade();
+      }
+      
+      // Restaurer le symbole original
+      sym = original_sym;
+      dig = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+      pt = SymbolInfoDouble(sym, SYMBOL_POINT);
+   }
+}
+
 // ancien : ManageOpenTrades();
 void OnTick()
 {
@@ -569,7 +631,9 @@ void OnTick()
     ManageBreakEvenPercent(_Symbol);   // ou ManageBreakEvenPercent(sym);
    // BE en continu (seuil %)
     if(!IsNewBar()) return;
-    TryOpenTrade();
+    
+    // Traiter tous les symboles autorisés
+    ProcessAllSymbols();
 }
 
 
