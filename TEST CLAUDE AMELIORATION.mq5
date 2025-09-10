@@ -131,6 +131,22 @@ bool GetEMAs(double &e21_1,double &e55_1,double &e21_2,double &e55_2)
    return true;
 }
 
+// Vérifie si EMA21 > EMA55 actuellement (position bullish)
+bool IsEMAPositionBullish()
+{
+   double e21_1, e55_1, e21_2, e55_2;
+   if(!GetEMAs(e21_1, e55_1, e21_2, e55_2)) return false;
+   return (e21_1 > e55_1);
+}
+
+// Vérifie si EMA21 < EMA55 actuellement (position bearish) 
+bool IsEMAPositionBearish()
+{
+   double e21_1, e55_1, e21_2, e55_2;
+   if(!GetEMAs(e21_1, e55_1, e21_2, e55_2)) return false;
+   return (e21_1 < e55_1);
+}
+
 // Calcule MACD SMA(20,45) et son Signal SMA(15) via SMA on-price + SMA sur MACD
 bool GetMACD_SMA(double &macd_1,double &sig_1,double &macd_2,double &sig_2)
 {
@@ -376,13 +392,20 @@ void TryOpenTrade()
    // [CHANGED] Scoring 5 conditions + nouvelles règles obligatoires
 int scoreBuy=0, scoreSell=0;
 
-// === OBLIGATIONS: EMA + MACD ===
+// === OBLIGATIONS: EMA + MACD (même sens, pas forcément simultané) ===
 bool emaB=false, emaS=false; GetEMACrossSignal(emaB, emaS);
 bool macdCombinedB=false, macdCombinedS=false; GetMACD_CombinedSignal(macdCombinedB, macdCombinedS);
 
-// Si EMA ET MACD pas tous les deux vrais -> STOP
-if(!emaB && !macdCombinedB) return;  // Pas de signal BUY possible
-if(!emaS && !macdCombinedS) return;  // Pas de signal SELL possible
+// Vérifier position actuelle EMA21/55 (pas seulement croisement)
+bool emaPositionBullish = IsEMAPositionBullish();  // EMA21 > EMA55
+bool emaPositionBearish = IsEMAPositionBearish();  // EMA21 < EMA55
+
+// Pour un BUY: soit signal EMA frais ET position bullish, soit position bullish + signal MACD
+bool buyPossible = (emaB && emaPositionBullish) || (emaPositionBullish && macdCombinedB);
+// Pour un SELL: soit signal EMA frais ET position bearish, soit position bearish + signal MACD  
+bool sellPossible = (emaS && emaPositionBearish) || (emaPositionBearish && macdCombinedS);
+
+if(!buyPossible && !sellPossible) return;  // Aucun signal possible
 
 // === FILTRES ===
 // 1) SMMA50 H4 tendance (FILTRE - bloque à contre-tendance)
@@ -392,11 +415,13 @@ if(InpUseSMMA50Trend){
 }
 
 // === SCORING (conditions supplémentaires) ===
-// 2) EMA21/55 cross (déjà vérifié comme obligatoire)
-if(emaB) scoreBuy++; if(emaS) scoreSell++;
+// 2) Signal EMA ou position EMA favorable
+if(emaB || (buyPossible && emaPositionBullish)) scoreBuy++; 
+if(emaS || (sellPossible && emaPositionBearish)) scoreSell++;
 
-// 3) MACD Combined (déjà vérifié comme obligatoire)
-if(macdCombinedB) scoreBuy++; if(macdCombinedS) scoreSell++;
+// 3) Signal MACD
+if(macdCombinedB) scoreBuy++; 
+if(macdCombinedS) scoreSell++;
 
 // 4) SMMA50 H4 direction (points bonus)
 if(InpUseSMMA50Trend){
@@ -408,8 +433,8 @@ if(InpUseSMMA50Trend){
 bool smmaH1B=false, smmaH1S=false; GetSMMA_H1_CrossSignal(smmaH1B, smmaH1S);
 if(smmaH1B) scoreBuy++; if(smmaH1S) scoreSell++;
 
-bool allowBuy  = (!InpUseSMMA50Trend || tdir>0);
-bool allowSell = (!InpUseSMMA50Trend || tdir<0);
+bool allowBuy  = (!InpUseSMMA50Trend || tdir>0) && buyPossible;
+bool allowSell = (!InpUseSMMA50Trend || tdir<0) && sellPossible;
 
 int dir=0;
 if(scoreBuy  >= InpMinConditions && allowBuy  && InpAllowBuys)  dir=+1;
