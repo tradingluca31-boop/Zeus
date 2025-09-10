@@ -62,7 +62,7 @@ input bool InpUseSMMA_H1_Cross  = true;             // Utiliser SMMA50/200 H1 cr
 input int  InpSMMA50_H1_Period  = 50;               // SMMA50 H1 période
 input int  InpSMMA200_H1_Period = 200;              // SMMA200 H1 période
 
-input int  InpMinConditions     = 3;                // Conditions minimales requises (Value=3 / Start=2 / Step=1 / Stop=5)
+input int  InpMinConditions     = 2;                // Conditions minimales requises (Value=2 / Start=2 / Step=1 / Stop=5)
 
 // [ADDED] === RSI Filter ===
 input bool InpUseRSI = true;                                // Utiliser filtre RSI
