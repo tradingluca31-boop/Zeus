@@ -166,7 +166,7 @@ void ComputeSignals(bool &buySig,bool &sellSig)
    buySig=false; sellSig=false;
 
    bool emaBuy=false, emaSell=false;
-   if(InpUseEMA_Cross && (InpSignalMode==EMA_ONLY || InpSignalMode==EMA_OR_MACD))
+   if(InpUseEMA_Cross && (InpSignalMode==EMA_ONLY || InpSignalMode==EMA_AND_MACD))
    {
       double e21_1,e55_1,e21_2,e55_2;
       if(GetEMAs(e21_1,e55_1,e21_2,e55_2))
@@ -177,7 +177,7 @@ void ComputeSignals(bool &buySig,bool &sellSig)
    }
 
    bool macdBuy=false, macdSell=false;
-   if(InpUseMACD && (InpSignalMode==MACD_ONLY || InpSignalMode==EMA_OR_MACD))
+   if(InpUseMACD && (InpSignalMode==MACD_ONLY || InpSignalMode==EMA_AND_MACD))
    {
       double m1,s1,m2,s2;
       if(GetMACD_SMA(m1,s1,m2,s2))
