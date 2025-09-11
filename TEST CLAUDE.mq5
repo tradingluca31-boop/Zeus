@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                   TEST CLAUDE - Export CSV Fix   |
 //|  Version corrigée avec export CSV fonctionnel                    |
-//|  H1 – Entrées 7:00-14:00 (serveur)                               |
+//|  H1 – Entrées 6:00-15:00 (serveur)                               |
 //|  Signal: EMA21/55 OU MACD(SMA 20,45,15)                          |
-//|  Max 2 trades/jour, SL 0.25%, TP +500$                           |
+//|  Max 2 trades/jour, SL 0.35%, TP +500$                           |
 //|  BE (0$) dès profit >= 300$ OU move >= 3R                        |
 //|  Risque FIXE = InpRiskPercent (pas de palier / pas de séries)    |
 //+------------------------------------------------------------------+
