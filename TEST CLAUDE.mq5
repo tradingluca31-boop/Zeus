@@ -40,10 +40,10 @@ input bool   UseFixedRiskMoney = true;   // Utiliser un montant fixe (€) au li
 input double FixedRiskMoney     = 100.0; // Montant risqué par trade (ex: 100€)
 input double ReducedRiskMoney   = 50.0;  // Montant risqué sous série de pertes (ex: 50€)
 
-input double InpSL_PercentOfPrice  = 0.25;  // SL = % du prix d'entrée (ex: 0.25 => 0.25%)
-input double InpTP_PercentOfPrice  = 1.25;  // TP = % du prix d'entrée
-input double InpBE_TriggerPercent  = 0.70;  // Passer BE quand le prix a évolué de +0.70% depuis l'entrée
-input int    InpMaxTradesPerDay    = 2;
+input double InpSL_PercentOfPrice  = 0.35;  // SL = % du prix d'entrée (ex: 0.25 => 0.25%)
+input double InpTP_PercentOfPrice  = 1.75;  // TP = % du prix d'entrée
+input double InpBE_TriggerPercent  = 1;  // Passer BE quand le prix a évolué de +0.70% depuis l'entrée
+input int    InpMaxTradesPerDay    = 4;
 
 
 // --- Fenêtre d'ouverture ---
@@ -68,8 +68,8 @@ input bool InpRSIBlockEqual = true;                         // Bloquer si == aux
 
 
 //=== Month Filter Inputs START ===========================================
-input bool InpTrade_Janvier   = false;  // Trader en Janvier
-input bool InpTrade_Fevrier   = false;  // Trader en Fevrier
+input bool InpTrade_Janvier   = true;  // Trader en Janvier
+input bool InpTrade_Fevrier   = true;  // Trader en Fevrier
 input bool InpTrade_Mars      = false;  // Trader en Mars
 input bool InpTrade_Avril     = true;   // Trader en Avril
 input bool InpTrade_Mai       = true;   // Trader en Mai
