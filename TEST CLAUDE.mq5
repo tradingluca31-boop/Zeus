@@ -25,7 +25,7 @@ input bool     InpUseMACD              = true;        // MACD SMA 20/45/15
 
 // --- MACD SMA config ---
 input int      InpMACD_Fast            = 20;          // SMA rapide
-input int      InpMACD_Slow            = 45;          // SMA lente
+input int      InpMACD_Slow            = 35;          // SMA lente
 input int      InpMACD_Signal          = 15;          // SMA du MACD
 
 // --- Risque / gestion (en %) ---
