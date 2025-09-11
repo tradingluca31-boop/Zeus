@@ -2,8 +2,8 @@
 //|                                   TEST CLAUDE - Export CSV Fix   |
 //|  Version corrigée avec export CSV fonctionnel                    |
 //|  H1 – Entrées 6:00-15:00 (serveur)                               |
-//|  Signal: EMA21/55 OU MACD(SMA 20,45,15)                          |
-//|  Max 2 trades/jour, SL 0.35, TP +500$                           |
+//|  Signal: 2/3 conditions (EMA21/55 + MACD hist + MACD cross)      |
+//|  Max 4 trades/jour, SL 0.35%, TP 1.75%                          |
 //|  BE (0$) dès profit >= 300$ OU move >= 3R                        |
 //|  Risque FIXE = InpRiskPercent (pas de palier / pas de séries)    |
 //+------------------------------------------------------------------+
@@ -56,7 +56,7 @@ input bool     InpVerboseLogs          = false;
 input bool InpUseSMMA50Trend    = true;             // Filtre tendance SMMA50
 input int  InpSMMA_Period       = 50;               // Période SMMA (Value=50 / Start=20 / Step=5 / Stop=200)
 input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;       // UT SMMA (H4)
-input int  InpMinConditions     = 3;                // Conditions minimales requises (Value=3 / Start=2 / Step=1 / Stop=4)
+input int  InpMinConditions     = 2;                // Conditions minimales requises (Value=2 / Start=2 / Step=1 / Stop=3)
 
 // [ADDED] === RSI Filter ===
 input bool InpUseRSI = true;                                // Utiliser filtre RSI
@@ -327,31 +327,26 @@ void TryOpenTrade()
    // [ADDED] RSI Filter - bloque si conditions non respectées
    if(!IsRSIFilterOK()) return;
 
-   // [CHANGED] Scoring 4 conditions (SMMA + EMA + MACD_hist + MACD_cross) + filtre SMMA directionnel
+   // [CHANGED] Scoring 3 conditions (EMA + MACD_hist + MACD_cross) + filtres SMMA et RSI
 int scoreBuy=0, scoreSell=0;
 
-// 1) SMMA50 H4 tendance
+// Filtre SMMA50 H4 tendance (pas de score)
 int tdir = TrendDir_SMMA50(); // +1/-1/0
-if(InpUseSMMA50Trend){
-   if(tdir>0) scoreBuy++;
-   else if(tdir<0) scoreSell++;
-   else return; // neutre -> pas d'entrée
-}
+bool allowBuy  = (!InpUseSMMA50Trend || tdir>0);
+bool allowSell = (!InpUseSMMA50Trend || tdir<0);
+if(InpUseSMMA50Trend && tdir==0) return; // neutre -> pas d'entrée
 
-// 2) EMA21/55 cross
+// 1) EMA21/55 cross
 bool emaB=false, emaS=false; GetEMACrossSignal(emaB, emaS);
 if(emaB) scoreBuy++; if(emaS) scoreSell++;
 
-// 3) MACD histogramme
+// 2) MACD histogramme
 bool mhB=false, mhS=false; GetMACD_HistSignal(mhB, mhS);
 if(mhB) scoreBuy++; if(mhS) scoreSell++;
 
-// 4) MACD croisement lignes
+// 3) MACD croisement lignes
 bool mcB=false, mcS=false; GetMACD_CrossSignal(mcB, mcS);
 if(mcB) scoreBuy++; if(mcS) scoreSell++;
-
-bool allowBuy  = (!InpUseSMMA50Trend || tdir>0);
-bool allowSell = (!InpUseSMMA50Trend || tdir<0);
 
 int dir=0;
 if(scoreBuy  >= InpMinConditions && allowBuy  && InpAllowBuys)  dir=+1;
