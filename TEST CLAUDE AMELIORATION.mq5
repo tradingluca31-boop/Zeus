@@ -52,7 +52,7 @@ input ENUM_TIMEFRAMES InpSignalTF      = PERIOD_H1;   // TF signaux (H1)
 input int      InpSessionStartHour     = 6;           // Ouverture 6h (heure serveur)
 input int      InpSessionEndHour       = 15;          // Fermeture 15h (pas de nouvelles entrées après)
 input int      InpSlippagePoints       = 20;
-input bool     InpVerboseLogs          = false;
+input bool     InpVerboseLogs          = true;
 // [ADDED] === SMMA50 H4 + SMMA H1 + Score conditions ===
 input bool InpUseSMMA50Trend    = true;             // Filtre tendance SMMA50 H4
 input int  InpSMMA_Period       = 50;               // Période SMMA (Value=50 / Start=20 / Step=5 / Stop=200)
@@ -557,50 +557,16 @@ void ManageBreakEvenPercent(const string symbol_)   // nom changé pour ne pas m
    }
 }
 
-// Traite tous les symboles autorisés
-void ProcessAllSymbols()
+// Version simplifiée pour le symbole du graphique uniquement
+void ProcessCurrentSymbol()
 {
-   string symbols_to_trade[];
-   int count = 0;
-   
-   if(InpTradeGold) {
-      ArrayResize(symbols_to_trade, count + 1);
-      symbols_to_trade[count] = "XAUUSD";
-      count++;
+   if(!ShouldTradeSymbol(sym)) {
+      if(InpVerboseLogs) Print("[DEBUG] Symbole ", sym, " non autorisé pour le trading");
+      return;
    }
    
-   if(InpTradeSilver) {
-      ArrayResize(symbols_to_trade, count + 1);
-      symbols_to_trade[count] = "XAGUSD";
-      count++;
-   }
-   
-   // Traiter chaque symbole
-   for(int i = 0; i < count; i++) {
-      string current_symbol = symbols_to_trade[i];
-      
-      // Changer temporairement vers ce symbole
-      string original_sym = sym;
-      sym = current_symbol;
-      dig = (int)MarketInfo(sym, MODE_DIGITS);
-      pt = MarketInfo(sym, MODE_POINT);
-      
-      // Vérifier si nouvelle barre pour ce symbole
-      datetime ct = iTime(sym, InpSignalTF, 0);
-      static datetime lastBarTimes[];
-      ArrayResize(lastBarTimes, count);
-      
-      if(i < ArraySize(lastBarTimes) && ct != lastBarTimes[i]) {
-         lastBarTimes[i] = ct;
-         Print("[DEBUG] Traitement symbole: ", sym);
-         TryOpenTrade();
-      }
-      
-      // Restaurer le symbole original
-      sym = original_sym;
-      dig = (int)MarketInfo(sym, MODE_DIGITS);
-      pt = MarketInfo(sym, MODE_POINT);
-   }
+   Print("[DEBUG] Traitement symbole: ", sym);
+   TryOpenTrade();
 }
 
 // ancien : ManageOpenTrades();
@@ -610,7 +576,7 @@ void OnTick()
    {
       MqlDateTime _dt; 
       TimeToStruct(TimeCurrent(), _dt);
-      if(!IsTradingMonth(TimeCurrent()) && PositionsTotal()==0 && OrdersTotal()==0)
+      if(!IsTradingMonth(TimeCurrent()) && OrdersTotal()==0)
       {
          PrintFormat("[DEBUG] [MonthFilter] Ouverture bloquee : %s desactive.", MonthToString(_dt.mon));
          return;
@@ -618,12 +584,12 @@ void OnTick()
    }
    //=====================================================================
 
-    ManageBreakEvenPercent(_Symbol);   // ou ManageBreakEvenPercent(sym);
+    ManageBreakEvenPercent(sym);
    // BE en continu (seuil %)
     if(!IsNewBar()) return;
     
-    // Traiter tous les symboles autorisés
-    ProcessAllSymbols();
+    // Traiter le symbole du graphique actuel
+    ProcessCurrentSymbol();
 }
 
 
