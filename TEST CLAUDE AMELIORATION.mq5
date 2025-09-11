@@ -103,8 +103,7 @@ int hSMAfast=-1, hSMAslow=-1;
 int hSMMA50 = -1;   // [ADDED] Handle SMMA50 H4
 int hSMMA50_H1 = -1, hSMMA200_H1 = -1;   // [ADDED] Handles SMMA H1
 
-// [ADDED] RSI variables
-int rsi_handle = INVALID_HANDLE;
+// [ADDED] RSI variables  
 double rsi_val = EMPTY_VALUE;
 datetime rsi_last_bar_time = 0;
 //======================== Utils Temps ======================
@@ -502,8 +501,9 @@ double tpPrice = (dir>0 ? entry*(1.0 + InpTP_PercentOfPrice/100.0)
    string cmt="BASE";
    if(UseLossStreakReduction && gLossStreak >= LossStreakTrigger) cmt="RISK-REDUCED";   // [ADDED]
    Print("[DEBUG] TENTATIVE TRADE - Dir:", dir, " Lots:", lots, " Entry:", entry, " SL:", sl, " TP:", tpPrice);
-   bool ok=(dir>0)? OrderSend(sym,OP_BUY,lots,entry,InpSlippagePoints,sl,tpPrice,cmt,InpMagic,0,clrBlue)>0
-                  : OrderSend(sym,OP_SELL,lots,entry,InpSlippagePoints,sl,tpPrice,cmt,InpMagic,0,clrRed)>0;
+   int ticket=(dir>0)? OrderSend(sym,OP_BUY,lots,entry,InpSlippagePoints,sl,tpPrice,cmt,InpMagic,0,Blue)
+                     : OrderSend(sym,OP_SELL,lots,entry,InpSlippagePoints,sl,tpPrice,cmt,InpMagic,0,Red);
+   bool ok = (ticket > 0);
    if(ok) {
       Print("[DEBUG] ✅ TRADE OUVERT!");
       MarkTradeOpened();
@@ -526,7 +526,7 @@ void ManageBreakEvenPercent(const string symbol_)   // nom changé pour ne pas m
       double entry = OrderOpenPrice();
       double sl    = OrderStopLoss();
       double tp    = OrderTakeProfit();
-      double price = (type==OP_BUY) ? MarketInfo(symbol_, MODE_BID) : MarketInfo(symbol_, MODE_ASK);
+      double price = (type==OP_BUY) ? Bid : Ask;
 
       // Seuil BE : +0.70% depuis l'entrée OU 3R
       double beTrigger = (type==OP_BUY) ? entry*(1.0 + InpBE_TriggerPercent/100.0)
@@ -539,15 +539,15 @@ void ManageBreakEvenPercent(const string symbol_)   // nom changé pour ne pas m
 
       if(condPercent || cond3R)
       {
-         int    d       = (int)MarketInfo(symbol_, MODE_DIGITS);
-         double ptLocal = MarketInfo(symbol_, MODE_POINT);
+         int    d       = Digits;
+         double ptLocal = Point;
 
          double targetSL = NormalizeDouble(entry, d);       // BE = SL à l'entrée
          bool need = (type==OP_BUY)  ? (sl < targetSL - 10*ptLocal)
                                      : (sl > targetSL + 10*ptLocal);
 
          if(need){
-            OrderModify(OrderTicket(), entry, targetSL, tp, 0, clrYellow);
+            OrderModify(OrderTicket(), entry, targetSL, tp, 0, Yellow);
             // log utile
             PrintFormat("[BE] %s entry=%.2f price=%.2f move=%.2fR sl->%.2f (%%Trig=%s, 3R=%s)",
                         symbol_, entry, price, (R>0? move/R:0.0), targetSL,
@@ -612,14 +612,8 @@ int OnInit()
       hSMMA200_H1 = iMA(sym, PERIOD_H1, InpSMMA200_H1_Period, 0, MODE_SMMA, PRICE_CLOSE);
    }
    
-   // [ADDED] Initialize RSI handle
-   if(InpUseRSI) {
-      rsi_handle = iRSI(sym, InpRSITF, InpRSIPeriod, PRICE_CLOSE);
-      if(rsi_handle == INVALID_HANDLE) {
-         Print(__FUNCTION__, ": RSI init failed, error=", GetLastError());
-         return INIT_FAILED;
-      }
-   }
+   // MQL4 n'utilise pas de handles pour RSI
+   // Les indicateurs sont appelés directement avec iRSI()
    
    // Vérifier que le symbole est autorisé
    if(!ShouldTradeSymbol(sym)) {
@@ -644,14 +638,8 @@ void OnDeinit(const int reason)
       ExportTradeHistoryCSV();
    }
    
-   if(hEMA21  !=INVALID_HANDLE) IndicatorRelease(hEMA21);
-   if(hEMA55  !=INVALID_HANDLE) IndicatorRelease(hEMA55);
-   if(hSMAfast!=INVALID_HANDLE) IndicatorRelease(hSMAfast);
-   if(hSMAslow!=INVALID_HANDLE) IndicatorRelease(hSMAslow);
-   if(hSMMA50 !=INVALID_HANDLE) IndicatorRelease(hSMMA50);
-   if(hSMMA50_H1 !=INVALID_HANDLE) IndicatorRelease(hSMMA50_H1);
-   if(hSMMA200_H1 !=INVALID_HANDLE) IndicatorRelease(hSMMA200_H1);
-   if(rsi_handle!=INVALID_HANDLE) IndicatorRelease(rsi_handle);
+   // MQL4 n'a pas besoin de libérer les handles d'indicateurs
+   // Ils sont gérés automatiquement
    
    Print("✅ OnDeinit: Handles libérés");
 }
@@ -661,20 +649,15 @@ void OnDeinit(const int reason)
 int CountConsecutiveLosses()
 {
    int count = 0;
-   datetime endTime = TimeCurrent();
-   datetime startTime = endTime - 86400*30; // 30 derniers jours
+   int totalOrders = OrdersHistoryTotal();
 
-   HistorySelect(startTime, endTime);
-   int totalDeals = HistoryDealsTotal();
-
-   // Parcourir les deals du plus récent au plus ancien
-   for(int i = totalDeals-1; i >= 0; i--)
+   // Parcourir les ordres du plus récent au plus ancien
+   for(int i = totalOrders-1; i >= 0; i--)
    {
-      ulong ticket = HistoryDealGetTicket(i);
-      if(HistoryDealGetString(ticket, DEAL_SYMBOL) == sym &&
-         HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagic)
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() == sym && OrderMagicNumber() == InpMagic)
       {
-         double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+         double profit = OrderProfit();
          if(profit < 0) count++;
          else break; // Arrêter au premier trade gagnant
       }
@@ -718,15 +701,11 @@ bool IsRSIFilterOK()
       return CheckRSILevel(rsi_val);
    
    // Mise à jour RSI
-   double rsi_buffer[];
-   ArraySetAsSeries(rsi_buffer, true);
-   
-   if(CopyBuffer(rsi_handle, 0, 1, 1, rsi_buffer) < 1) {
-      if(InpVerboseLogs) Print("[RSI] Erreur lecture buffer RSI");
+   rsi_val = iRSI(sym, InpRSITF, InpRSIPeriod, PRICE_CLOSE, 1);
+   if(rsi_val == EMPTY_VALUE) {
+      if(InpVerboseLogs) Print("[RSI] Erreur lecture RSI");
       return false; // Bloque si erreur lecture
    }
-   
-   rsi_val = rsi_buffer[0];
    rsi_last_bar_time = current_bar;
    
    return CheckRSILevel(rsi_val);
@@ -803,60 +782,51 @@ void ExportTradeHistoryCSV()
    datetime startDate = D'2020.01.01';
    datetime endDate = TimeCurrent() + 86400;
    
-   if(HistorySelect(startDate, endDate))
+   // MQL4 n'a pas besoin de HistorySelect
+   Print("✅ Historique accessible");
+   int total_deals = OrdersHistoryTotal();
+   Print("📊 Nombre total d'ordres historiques: ", total_deals);
+   
+   int exported_count = 0;
+   
+   for(int i = 0; i < total_deals; i++)
    {
-      Print("✅ Historique sélectionné avec succès");
-      int total_deals = HistoryDealsTotal();
-      Print("📊 Nombre total de deals: ", total_deals);
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
       
-      int exported_count = 0;
+      if(OrderMagicNumber() != InpMagic) continue; // Filtrer par magic number
       
-      for(int i = 0; i < total_deals; i++)
+      // Exporter seulement les ordres fermés
       {
-         ulong ticket = HistoryDealGetTicket(i);
-         if(ticket == 0) continue;
+         string deal_symbol = OrderSymbol();
+         int deal_type = OrderType();
+         datetime deal_time = OrderCloseTime();
+         double deal_price = OrderClosePrice();
+         double deal_profit = OrderProfit();
+         double deal_volume = OrderLots();
+         double deal_swap = OrderSwap();
+         double deal_commission = OrderCommission();
+         string deal_comment = OrderComment();
          
-         long deal_magic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
-         if(deal_magic != InpMagic) continue; // Filtrer par magic number
+         // Formatage CSV avec toutes les données importantes
+         string csv_line = IntegerToString(OrderMagicNumber()) + "," +
+                          deal_symbol + "," +
+                          IntegerToString(deal_type) + "," +
+                          TimeToString(deal_time) + "," +
+                          TimeToString(deal_time) + "," +
+                          DoubleToString(deal_price, 5) + "," +
+                          DoubleToString(deal_price, 5) + "," +
+                          DoubleToString(deal_profit, 2) + "," +
+                          DoubleToString(deal_volume, 2) + "," +
+                          DoubleToString(deal_swap, 2) + "," +
+                          DoubleToString(deal_commission, 2) + "," +
+                          deal_comment;
          
-         // Exporter seulement les deals de sortie (fermeture de position)
-         if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT)
-         {
-            string deal_symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
-            long deal_type = HistoryDealGetInteger(ticket, DEAL_TYPE);
-            long deal_time = HistoryDealGetInteger(ticket, DEAL_TIME);
-            double deal_price = HistoryDealGetDouble(ticket, DEAL_PRICE);
-            double deal_profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
-            double deal_volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
-            double deal_swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
-            double deal_commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-            string deal_comment = HistoryDealGetString(ticket, DEAL_COMMENT);
-            
-            // Formatage CSV avec toutes les données importantes
-            string csv_line = IntegerToString(deal_magic) + "," +
-                             deal_symbol + "," +
-                             IntegerToString(deal_type) + "," +
-                             IntegerToString(deal_time) + "," +
-                             IntegerToString(deal_time) + "," +
-                             DoubleToString(deal_price, 5) + "," +
-                             DoubleToString(deal_price, 5) + "," +
-                             DoubleToString(deal_profit, 2) + "," +
-                             DoubleToString(deal_volume, 2) + "," +
-                             DoubleToString(deal_swap, 2) + "," +
-                             DoubleToString(deal_commission, 2) + "," +
-                             deal_comment;
-            
-            FileWrite(file_handle, csv_line);
-            exported_count++;
-         }
+         FileWrite(file_handle, csv_line);
+         exported_count++;
       }
-      
-      Print("🎯 Nombre de trades exportés: ", exported_count);
    }
-   else
-   {
-      Print("❌ ERREUR: Impossible de sélectionner l'historique. Erreur: ", GetLastError());
-   }
+   
+   Print("🎯 Nombre de trades exportés: ", exported_count);
    
    FileFlush(file_handle); // Force l'écriture sur disque
    FileClose(file_handle);
