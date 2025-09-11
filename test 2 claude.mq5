@@ -53,10 +53,10 @@ input int      InpSessionEndHour       = 15;          // Fermeture 15h (pas de n
 input int      InpSlippagePoints       = 20;
 input bool     InpVerboseLogs          = true;
 // [ADDED] === SMMA50 + Score conditions (optimisables) ===
-input bool InpUseSMMA50Trend    = true;             // Filtre tendance SMMA50
+input bool InpUseSMMA50Trend    = false;            // Filtre tendance SMMA50
 input int  InpSMMA_Period       = 50;               // Période SMMA (Value=50 / Start=20 / Step=5 / Stop=200)
 input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;       // UT SMMA (H4)
-input int  InpMinConditions     = 2;                // Conditions minimales requises (Value=2 / Start=1 / Step=1 / Stop=3)
+input int  InpMinConditions     = 1;                // Conditions minimales requises (Value=1 / Start=1 / Step=1 / Stop=3)
 
 // [ADDED] === RSI Filter ===
 input bool InpUseRSI = false;                               // Utiliser filtre RSI
@@ -362,40 +362,52 @@ int TrendDir_SMMA50()
    return 0;
 }
 
-// EMA21/55 (croisement)
+// EMA21/55 (SIMPLIFIÉ POUR TEST - plus de signaux)
 bool GetEMACrossSignal(bool &buy,bool &sell)
 {
    buy=false; sell=false;
    double e21_1,e55_1,e21_2,e55_2;
    if(!GetEMAs(e21_1,e55_1,e21_2,e55_2)) return false;
-   buy  = (e21_2<=e55_2 && e21_1>e55_1);
-   sell = (e21_2>=e55_2 && e21_1<e55_1);
+   
+   // VERSION TEST: EMA21 au-dessus/en-dessous EMA55 (pas croisement)
+   buy  = (e21_1 > e55_1);   // EMA21 au-dessus EMA55
+   sell = (e21_1 < e55_1);   // EMA21 en-dessous EMA55
+   
+   if(InpVerboseLogs) PrintFormat("[EMA] e21=%.5f, e55=%.5f, buy=%s, sell=%s", 
+                                  e21_1, e55_1, buy?"true":"false", sell?"true":"false");
    return true;
 }
 
-// MACD (SMA-based existant) — croisement des lignes
+// MACD (SIMPLIFIÉ POUR TEST - plus de signaux)
 bool GetMACD_CrossSignal(bool &buy,bool &sell)
 {
    buy=false; sell=false;
    double m1,s1,m2,s2;
    if(!GetMACD_SMA(m1,s1,m2,s2)) return false;
-   buy  = (m2<=s2 && m1>s1);
-   sell = (m2>=s2 && m1<s1);
+   
+   // VERSION TEST: MACD au-dessus/en-dessous signal (pas croisement)
+   buy  = (m1 > s1);  // MACD au-dessus signal
+   sell = (m1 < s1);  // MACD en-dessous signal
+   
+   if(InpVerboseLogs) PrintFormat("[MACD] macd=%.5f, signal=%.5f, buy=%s, sell=%s", 
+                                  m1, s1, buy?"true":"false", sell?"true":"false");
    return true;
 }
 
-// MACD — histogramme (MAIN - SIGNAL) - Détection croisement
+// MACD — histogramme (SIMPLIFIÉ POUR TEST)
 bool GetMACD_HistSignal(bool &buy,bool &sell)
 {
    buy=false; sell=false;
    double m1,s1,m2,s2;
    if(!GetMACD_SMA(m1,s1,m2,s2)) return false;
    double hist_current = (m1 - s1);  // Histogramme actuel
-   double hist_previous = (m2 - s2); // Histogramme précédent
    
-   // Croisement : de négatif à positif = BUY, de positif à négatif = SELL
-   buy  = (hist_previous <= 0.0 && hist_current > 0.0);
-   sell = (hist_previous >= 0.0 && hist_current < 0.0);
+   // VERSION TEST: Histogramme positif/négatif (pas croisement)
+   buy  = (hist_current > 0.0);  // Histogramme positif
+   sell = (hist_current < 0.0);  // Histogramme négatif
+   
+   if(InpVerboseLogs) PrintFormat("[MACD_HIST] hist=%.5f, buy=%s, sell=%s", 
+                                  hist_current, buy?"true":"false", sell?"true":"false");
    return true;
 }
 
