@@ -2,7 +2,7 @@
 //|                                   TEST CLAUDE - Export CSV Fix   |
 //|  Version corrigée avec export CSV fonctionnel                    |
 //|  H1 – Entrées 6:00-15:00 (serveur)                               |
-//|  Signal: 2/3 conditions (EMA21/55 + MACD hist + MACD cross)      |
+//|  Signal: 1/3 conditions (EMA21/55 + MACD hist + MACD cross)      |
 //|  Max 4 trades/jour, SL 0.35%, TP 1.75%                          |
 //|  BE (0$) dès profit >= 300$ OU move >= 3R                        |
 //|  Risque FIXE = InpRiskPercent (pas de palier / pas de séries)    |
@@ -56,7 +56,7 @@ input bool     InpVerboseLogs          = false;
 input bool InpUseSMMA50Trend    = true;             // Filtre tendance SMMA50
 input int  InpSMMA_Period       = 50;               // Période SMMA (Value=50 / Start=20 / Step=5 / Stop=200)
 input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;       // UT SMMA (H4)
-input int  InpMinConditions     = 2;                // Conditions minimales requises (Value=2 / Start=2 / Step=1 / Stop=3)
+input int  InpMinConditions     = 1;                // Conditions minimales requises (Value=1 / Start=1 / Step=1 / Stop=3)
 
 // [ADDED] === RSI Filter ===
 input bool InpUseRSI = true;                                // Utiliser filtre RSI
