@@ -466,11 +466,22 @@ double risk=riskMoney;
 //======================== Ouverture ========================
 void TryOpenTrade()
 {
-   if(!InEntryWindow()) return;
-   if(!CanOpenToday()) return;
+   PrintFormat("[DEBUG] TryOpenTrade appelé à %s", TimeToString(TimeCurrent()));
+   
+   if(!InEntryWindow()) {
+      PrintFormat("[DEBUG] Hors fenêtre trading (6h-15h)");
+      return;
+   }
+   if(!CanOpenToday()) {
+      PrintFormat("[DEBUG] Max trades/jour atteint (%d/%d)", tradesCountToday, InpMaxTradesPerDay);
+      return;
+   }
    
    // [ADDED] RSI Filter - bloque si conditions non respectées
-   if(!IsRSIFilterOK()) return;
+   if(!IsRSIFilterOK()) {
+      PrintFormat("[DEBUG] RSI Filter bloqué");
+      return;
+   }
 
    // [NEW] Système de conditions persistantes + filtres SMMA et RSI
    
@@ -484,21 +495,40 @@ void TryOpenTrade()
    int tdir = TrendDir_SMMA50(); // +1/-1/0
    bool allowBuy  = (!InpUseSMMA50Trend || tdir>0);
    bool allowSell = (!InpUseSMMA50Trend || tdir<0);
-   if(InpUseSMMA50Trend && tdir==0) return; // neutre -> pas d'entrée
+   PrintFormat("[DEBUG] SMMA50 trend direction: %d, allowBuy=%s, allowSell=%s", 
+               tdir, allowBuy?"true":"false", allowSell?"true":"false");
+   
+   if(InpUseSMMA50Trend && tdir==0) {
+      PrintFormat("[DEBUG] SMMA50 neutre - pas d'entrée");
+      return; // neutre -> pas d'entrée
+   }
 
    // Calcul du score persistant
    int scoreBuy = GetPersistentScore(true);
    int scoreSell = GetPersistentScore(false);
    
-   if(InpVerboseLogs) {
-      PrintFormat("[PERSISTENT] Score BUY=%d, SELL=%d (min requis=%d)", 
-                  scoreBuy, scoreSell, InpMinConditions);
-   }
+   PrintFormat("[DEBUG] Score BUY=%d, SELL=%d (min requis=%d)", 
+               scoreBuy, scoreSell, InpMinConditions);
+   PrintFormat("[DEBUG] Conditions BUY: EMA=%s, MACD_Hist=%s, MACD_Cross=%s", 
+               (gEMACrossBuy && IsConditionValid(gEMACrossBuyTime))?"✓":"✗",
+               (gMACDHistBuy && IsConditionValid(gMACDHistBuyTime))?"✓":"✗", 
+               (gMACDCrossBuy && IsConditionValid(gMACDCrossBuyTime))?"✓":"✗");
+   PrintFormat("[DEBUG] Conditions SELL: EMA=%s, MACD_Hist=%s, MACD_Cross=%s", 
+               (gEMACrossSell && IsConditionValid(gEMACrossSellTime))?"✓":"✗",
+               (gMACDHistSell && IsConditionValid(gMACDHistSellTime))?"✓":"✗", 
+               (gMACDCrossSell && IsConditionValid(gMACDCrossSellTime))?"✓":"✗");
 
    int dir=0;
    if(scoreBuy  >= InpMinConditions && allowBuy  && InpAllowBuys)  dir=+1;
    if(scoreSell >= InpMinConditions && allowSell && InpAllowSells && dir==0) dir=-1;
-   if(dir==0) return;
+   
+   if(dir==0) {
+      PrintFormat("[DEBUG] Aucune direction valide - scoreBuy=%d, scoreSell=%d, minReq=%d", 
+                  scoreBuy, scoreSell, InpMinConditions);
+      return;
+   }
+   
+   PrintFormat("[DEBUG] Direction choisie: %s", (dir>0?"BUY":"SELL"));
 
    double entry=(dir>0)? SymbolInfoDouble(sym,SYMBOL_ASK):SymbolInfoDouble(sym,SYMBOL_BID);
    double sl; MakeSL_Init(dir,entry,sl);
@@ -515,12 +545,22 @@ double tpPrice = (dir>0 ? entry*(1.0 + InpTP_PercentOfPrice/100.0)
    Trade.SetDeviationInPoints(InpSlippagePoints);
    string cmt="BASE";
    if(UseLossStreakReduction && gLossStreak >= LossStreakTrigger) cmt="RISK-REDUCED";   // [ADDED]
+   PrintFormat("[DEBUG] Tentative ouverture %s: lots=%.2f, entry=%.5f, sl=%.5f, tp=%.5f", 
+               (dir>0?"BUY":"SELL"), lots, entry, sl, tpPrice);
+   
    bool ok=(dir>0)? Trade.Buy(lots,sym,entry,sl,tpPrice,cmt)
                   : Trade.Sell(lots,sym,entry,sl,tpPrice,cmt);
+   
    if(ok) {
       MarkTradeOpened();
       ResetAllConditions(); // Reset après ouverture trade
-      if(InpVerboseLogs) PrintFormat("[TRADE] %s ouvert, conditions resetées", (dir>0?"BUY":"SELL"));
+      PrintFormat("[SUCCESS] %s ouvert avec succès, conditions resetées", (dir>0?"BUY":"SELL"));
+   } else {
+      uint retcode = Trade.ResultRetcode();
+      string comment = Trade.ResultComment();
+      PrintFormat("[ERROR] Échec ouverture %s - Code: %d, Comment: %s", 
+                  (dir>0?"BUY":"SELL"), retcode, comment);
+      PrintFormat("[ERROR] LastError: %d", GetLastError());
    }
 }
 
@@ -590,8 +630,16 @@ void OnTick()
 
     ManageBreakEvenPercent(_Symbol);   // ou ManageBreakEvenPercent(sym);
    // BE en continu (seuil %)
-    if(!IsNewBar()) return;
-    TryOpenTrade();
+    
+    static datetime lastTryTime = 0;
+    datetime currentTime = TimeCurrent();
+    
+    // Essaie d'ouvrir des trades toutes les minutes au lieu de seulement sur nouvelle barre
+    if(currentTime - lastTryTime >= 60) {  // 60 secondes
+       lastTryTime = currentTime;
+       PrintFormat("[DEBUG] OnTick - Tentative TryOpenTrade à %s", TimeToString(currentTime));
+       TryOpenTrade();
+    }
 }
 
 
