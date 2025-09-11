@@ -51,7 +51,7 @@ input ENUM_TIMEFRAMES InpSignalTF      = PERIOD_H1;   // TF signaux (H1)
 input int      InpSessionStartHour     = 6;           // Ouverture 6h (heure serveur)
 input int      InpSessionEndHour       = 15;          // Fermeture 15h (pas de nouvelles entrées après)
 input int      InpSlippagePoints       = 20;
-input bool     InpVerboseLogs          = false;
+input bool     InpVerboseLogs          = true;
 // [ADDED] === SMMA50 + Score conditions (optimisables) ===
 input bool InpUseSMMA50Trend    = true;             // Filtre tendance SMMA50
 input int  InpSMMA_Period       = 50;               // Période SMMA (Value=50 / Start=20 / Step=5 / Stop=200)
@@ -59,7 +59,7 @@ input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;       // UT SMMA (H4)
 input int  InpMinConditions     = 2;                // Conditions minimales requises (Value=2 / Start=1 / Step=1 / Stop=3)
 
 // [ADDED] === RSI Filter ===
-input bool InpUseRSI = true;                                // Utiliser filtre RSI
+input bool InpUseRSI = false;                               // Utiliser filtre RSI
 input ENUM_TIMEFRAMES InpRSITF = PERIOD_H4;                 // TimeFrame RSI
 input int InpRSIPeriod = 14;                                // Période RSI (Value=14 / Start=7 / Step=1 / Stop=40)
 input int InpRSIOverbought = 70;                            // Seuil surachat RSI (Value=70 / Start=60 / Step=1 / Stop=85)
@@ -70,7 +70,7 @@ input bool InpRSIBlockEqual = true;                         // Bloquer si == aux
 //=== Month Filter Inputs START ===========================================
 input bool InpTrade_Janvier   = true;  // Trader en Janvier
 input bool InpTrade_Fevrier   = true;  // Trader en Fevrier
-input bool InpTrade_Mars      = false;  // Trader en Mars
+input bool InpTrade_Mars      = true;   // Trader en Mars
 input bool InpTrade_Avril     = true;   // Trader en Avril
 input bool InpTrade_Mai       = true;   // Trader en Mai
 input bool InpTrade_Juin      = true;   // Trader en Juin
@@ -222,46 +222,55 @@ void UpdatePersistentConditions()
    // 1) EMA Cross
    bool emaB=false, emaS=false;
    if(GetEMACrossSignal(emaB, emaS)) {
+      if(InpVerboseLogs) PrintFormat("[PERSISTENT] EMA signals: BUY=%s, SELL=%s", emaB?"true":"false", emaS?"true":"false");
       if(emaB && !gEMACrossBuy) {
          gEMACrossBuy = true;
          gEMACrossBuyTime = current;
-         if(InpVerboseLogs) Print("[PERSISTENT] EMA Cross BUY activé");
+         Print("[PERSISTENT] EMA Cross BUY activé");
       }
       if(emaS && !gEMACrossSell) {
          gEMACrossSell = true;
          gEMACrossSellTime = current;
-         if(InpVerboseLogs) Print("[PERSISTENT] EMA Cross SELL activé");
+         Print("[PERSISTENT] EMA Cross SELL activé");
       }
+   } else {
+      if(InpVerboseLogs) Print("[PERSISTENT] EMA Cross: Pas de signal détecté");
    }
    
    // 2) MACD Histogram
    bool mhB=false, mhS=false;
    if(GetMACD_HistSignal(mhB, mhS)) {
+      if(InpVerboseLogs) PrintFormat("[PERSISTENT] MACD Hist signals: BUY=%s, SELL=%s", mhB?"true":"false", mhS?"true":"false");
       if(mhB && !gMACDHistBuy) {
          gMACDHistBuy = true;
          gMACDHistBuyTime = current;
-         if(InpVerboseLogs) Print("[PERSISTENT] MACD Hist BUY activé");
+         Print("[PERSISTENT] MACD Hist BUY activé");
       }
       if(mhS && !gMACDHistSell) {
          gMACDHistSell = true;
          gMACDHistSellTime = current;
-         if(InpVerboseLogs) Print("[PERSISTENT] MACD Hist SELL activé");
+         Print("[PERSISTENT] MACD Hist SELL activé");
       }
+   } else {
+      if(InpVerboseLogs) Print("[PERSISTENT] MACD Hist: Pas de signal détecté");
    }
    
    // 3) MACD Cross
    bool mcB=false, mcS=false;
    if(GetMACD_CrossSignal(mcB, mcS)) {
+      if(InpVerboseLogs) PrintFormat("[PERSISTENT] MACD Cross signals: BUY=%s, SELL=%s", mcB?"true":"false", mcS?"true":"false");
       if(mcB && !gMACDCrossBuy) {
          gMACDCrossBuy = true;
          gMACDCrossBuyTime = current;
-         if(InpVerboseLogs) Print("[PERSISTENT] MACD Cross BUY activé");
+         Print("[PERSISTENT] MACD Cross BUY activé");
       }
       if(mcS && !gMACDCrossSell) {
          gMACDCrossSell = true;
          gMACDCrossSellTime = current;
-         if(InpVerboseLogs) Print("[PERSISTENT] MACD Cross SELL activé");
+         Print("[PERSISTENT] MACD Cross SELL activé");
       }
+   } else {
+      if(InpVerboseLogs) Print("[PERSISTENT] MACD Cross: Pas de signal détecté");
    }
 }
 
