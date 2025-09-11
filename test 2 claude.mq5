@@ -233,15 +233,18 @@ bool GetMACD_CrossSignal(bool &buy,bool &sell)
    return true;
 }
 
-// MACD — histogramme (MAIN - SIGNAL)
+// MACD — histogramme (MAIN - SIGNAL) - Détection croisement
 bool GetMACD_HistSignal(bool &buy,bool &sell)
 {
    buy=false; sell=false;
    double m1,s1,m2,s2;
    if(!GetMACD_SMA(m1,s1,m2,s2)) return false;
-   double hist = (m1 - s1);
-   buy  = (hist > 0.0);
-   sell = (hist < 0.0);
+   double hist_current = (m1 - s1);  // Histogramme actuel
+   double hist_previous = (m2 - s2); // Histogramme précédent
+   
+   // Croisement : de négatif à positif = BUY, de positif à négatif = SELL
+   buy  = (hist_previous <= 0.0 && hist_current > 0.0);
+   sell = (hist_previous >= 0.0 && hist_current < 0.0);
    return true;
 }
 
