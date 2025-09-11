@@ -8,9 +8,6 @@
 //|  Risque FIXE = InpRiskPercent (pas de palier / pas de séries)    |
 //+------------------------------------------------------------------+
 #property strict
-#include <Trade/Trade.mqh>
-
-CTrade Trade;
 
 //======================== Inputs utilisateur ========================
 input long     InpMagic                = 20250811;
@@ -255,7 +252,7 @@ int TrendDir_SMMA50()
 {
    if(!InpUseSMMA50Trend) return 0;
    double smma=0.0; if(!GetSMMA50(smma)) return 0;
-   double bid=SymbolInfoDouble(sym,SYMBOL_BID), ask=SymbolInfoDouble(sym,SYMBOL_ASK);
+   double bid=MarketInfo(sym,MODE_BID), ask=MarketInfo(sym,MODE_ASK);
    double px=(bid+ask)*0.5;
    if(px>smma) return +1;
    if(px<smma) return -1;
@@ -364,11 +361,9 @@ bool PriceForTargetProfit(int dir,double lots,double entry,double targetUSD,doub
 //======================== Sizing 1% FIXE ===================
 double LossPerLotAtSL(int dir,double entry,double sl)
 {
-   double p=0.0; bool ok = (dir>0)? OrderCalcProfit(ORDER_TYPE_BUY,sym,1.0,entry,sl,p)
-                                  : OrderCalcProfit(ORDER_TYPE_SELL,sym,1.0,entry,sl,p);
-   if(ok) return MathAbs(p);
-   double tv=SymbolInfoDouble(sym,SYMBOL_TRADE_TICK_VALUE);
-   double ts=SymbolInfoDouble(sym,SYMBOL_TRADE_TICK_SIZE);
+   // Calcul approximatif pour MQL4
+   double tv=MarketInfo(sym,MODE_TICKVALUE);
+   double ts=MarketInfo(sym,MODE_TICKSIZE);
    double dist=MathAbs(entry-sl);
    if(tv>0 && ts>0) return (dist/ts)*tv;
    return 0.0;
@@ -376,7 +371,7 @@ double LossPerLotAtSL(int dir,double entry,double sl)
 
 double LotsFromRisk(int dir,double entry,double sl)
 {
-   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double equity=AccountEquity();
 // [CHANGED] Poseidon 03/09/2025 Option A — risque en € fixe + réduction série
 double riskMoney = equity*(InpRiskPercent/100.0); // fallback %
 if(UseFixedRiskMoney)
@@ -397,9 +392,9 @@ double risk=riskMoney;
    double lossPerLot=LossPerLotAtSL(dir,entry,sl);
    if(lossPerLot<=0) return 0.0;
    double lots=risk/lossPerLot;
-   double step=SymbolInfoDouble(sym,SYMBOL_VOLUME_STEP);
-   double minL=SymbolInfoDouble(sym,SYMBOL_VOLUME_MIN);
-   double maxL=SymbolInfoDouble(sym,SYMBOL_VOLUME_MAX);
+   double step=MarketInfo(sym,MODE_LOTSTEP);
+   double minL=MarketInfo(sym,MODE_MINLOT);
+   double maxL=MarketInfo(sym,MODE_MAXLOT);
    if(step<=0) step=0.01;
    lots=MathFloor(lots/step)*step;
    lots=MathMax(minL,MathMin(lots,maxL));
@@ -493,7 +488,7 @@ if(dir==0) {
    return;
 }
 
-   double entry=(dir>0)? SymbolInfoDouble(sym,SYMBOL_ASK):SymbolInfoDouble(sym,SYMBOL_BID);
+   double entry=(dir>0)? MarketInfo(sym,MODE_ASK):MarketInfo(sym,MODE_BID);
    double sl; MakeSL_Init(dir,entry,sl);
    double lots=LotsFromRisk(dir,entry,sl);
    if(lots<=0) return;
@@ -504,13 +499,11 @@ double tpPrice = (dir>0 ? entry*(1.0 + InpTP_PercentOfPrice/100.0)
 
 
 
-   Trade.SetExpertMagicNumber(InpMagic);
-   Trade.SetDeviationInPoints(InpSlippagePoints);
    string cmt="BASE";
    if(UseLossStreakReduction && gLossStreak >= LossStreakTrigger) cmt="RISK-REDUCED";   // [ADDED]
    Print("[DEBUG] TENTATIVE TRADE - Dir:", dir, " Lots:", lots, " Entry:", entry, " SL:", sl, " TP:", tpPrice);
-   bool ok=(dir>0)? Trade.Buy(lots,sym,entry,sl,tpPrice,cmt)
-                  : Trade.Sell(lots,sym,entry,sl,tpPrice,cmt);
+   bool ok=(dir>0)? OrderSend(sym,OP_BUY,lots,entry,InpSlippagePoints,sl,tpPrice,cmt,InpMagic,0,clrBlue)>0
+                  : OrderSend(sym,OP_SELL,lots,entry,InpSlippagePoints,sl,tpPrice,cmt,InpMagic,0,clrRed)>0;
    if(ok) {
       Print("[DEBUG] ✅ TRADE OUVERT!");
       MarkTradeOpened();
@@ -524,41 +517,37 @@ double RPrice(const double entry){ return entry*(InpSL_PercentOfPrice/100.0); } 
 
 void ManageBreakEvenPercent(const string symbol_)   // nom changé pour ne pas masquer une globale
 {
-   for(int i=PositionsTotal()-1; i>=0; --i)
+   for(int i=OrdersTotal()-1; i>=0; --i)
    {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;         // sélection
-      if(PositionGetString(POSITION_SYMBOL)!=symbol_) continue;          // filtre symbole
+      if(!OrderSelect(i,SELECT_BY_POS)) continue;
+      if(OrderSymbol()!=symbol_ || OrderMagicNumber()!=InpMagic) continue;
 
-      long   type  = (long)PositionGetInteger(POSITION_TYPE);            // BUY/SELL
-      double entry = PositionGetDouble (POSITION_PRICE_OPEN);
-      double sl    = PositionGetDouble (POSITION_SL);
-      double tp    = PositionGetDouble (POSITION_TP);
-      double price = (type==POSITION_TYPE_BUY)
-                     ? SymbolInfoDouble(symbol_, SYMBOL_BID)
-                     : SymbolInfoDouble(symbol_, SYMBOL_ASK);
+      int    type  = OrderType();
+      double entry = OrderOpenPrice();
+      double sl    = OrderStopLoss();
+      double tp    = OrderTakeProfit();
+      double price = (type==OP_BUY) ? MarketInfo(symbol_, MODE_BID) : MarketInfo(symbol_, MODE_ASK);
 
       // Seuil BE : +0.70% depuis l'entrée OU 3R
-      const double beTrigger = (type==POSITION_TYPE_BUY)
-                               ? entry*(1.0 + InpBE_TriggerPercent/100.0)
-                               : entry*(1.0 - InpBE_TriggerPercent/100.0);
-      const bool condPercent = (type==POSITION_TYPE_BUY) ? (price>=beTrigger) : (price<=beTrigger);
+      double beTrigger = (type==OP_BUY) ? entry*(1.0 + InpBE_TriggerPercent/100.0)
+                                        : entry*(1.0 - InpBE_TriggerPercent/100.0);
+      bool condPercent = (type==OP_BUY) ? (price>=beTrigger) : (price<=beTrigger);
 
-      const double R    = MathAbs(entry - sl);              // 1R en prix
-      const double move = MathAbs(price - entry);
-      const bool   cond3R = (R>0.0 && move >= 3.0*R);
+      double R    = MathAbs(entry - sl);              // 1R en prix
+      double move = MathAbs(price - entry);
+      bool   cond3R = (R>0.0 && move >= 3.0*R);
 
       if(condPercent || cond3R)
       {
-         const int    d       = (int)SymbolInfoInteger(symbol_, SYMBOL_DIGITS);
-         const double ptLocal = SymbolInfoDouble(symbol_, SYMBOL_POINT);  // <— nom différent
+         int    d       = (int)MarketInfo(symbol_, MODE_DIGITS);
+         double ptLocal = MarketInfo(symbol_, MODE_POINT);
 
          double targetSL = NormalizeDouble(entry, d);       // BE = SL à l'entrée
-         bool need = (type==POSITION_TYPE_BUY)  ? (sl < targetSL - 10*ptLocal)
-                                                : (sl > targetSL + 10*ptLocal);
+         bool need = (type==OP_BUY)  ? (sl < targetSL - 10*ptLocal)
+                                     : (sl > targetSL + 10*ptLocal);
 
          if(need){
-            Trade.PositionModify(symbol_, targetSL, tp);
+            OrderModify(OrderTicket(), entry, targetSL, tp, 0, clrYellow);
             // log utile
             PrintFormat("[BE] %s entry=%.2f price=%.2f move=%.2fR sl->%.2f (%%Trig=%s, 3R=%s)",
                         symbol_, entry, price, (R>0? move/R:0.0), targetSL,
@@ -593,8 +582,8 @@ void ProcessAllSymbols()
       // Changer temporairement vers ce symbole
       string original_sym = sym;
       sym = current_symbol;
-      dig = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-      pt = SymbolInfoDouble(sym, SYMBOL_POINT);
+      dig = (int)MarketInfo(sym, MODE_DIGITS);
+      pt = MarketInfo(sym, MODE_POINT);
       
       // Vérifier si nouvelle barre pour ce symbole
       datetime ct = iTime(sym, InpSignalTF, 0);
@@ -609,8 +598,8 @@ void ProcessAllSymbols()
       
       // Restaurer le symbole original
       sym = original_sym;
-      dig = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-      pt = SymbolInfoDouble(sym, SYMBOL_POINT);
+      dig = (int)MarketInfo(sym, MODE_DIGITS);
+      pt = MarketInfo(sym, MODE_POINT);
    }
 }
 
@@ -643,7 +632,7 @@ void OnTick()
 //======================== Events ==========================
 int OnInit()
 {
-   sym=_Symbol; dig=(int)SymbolInfoInteger(sym,SYMBOL_DIGITS); pt=SymbolInfoDouble(sym,SYMBOL_POINT);
+   sym=_Symbol; dig=(int)MarketInfo(sym,MODE_DIGITS); pt=MarketInfo(sym,MODE_POINT);
 
    hEMA21=iMA(sym,InpSignalTF,21,0,MODE_EMA,PRICE_CLOSE);
    hEMA55=iMA(sym,InpSignalTF,55,0,MODE_EMA,PRICE_CLOSE);
@@ -664,6 +653,11 @@ int OnInit()
          Print(__FUNCTION__, ": RSI init failed, error=", GetLastError());
          return INIT_FAILED;
       }
+   }
+   
+   // Vérifier que le symbole est autorisé
+   if(!ShouldTradeSymbol(sym)) {
+      Print("ATTENTION: Symbole ", sym, " non autorisé. EA chargé mais inactif.");
    }
    
    if(hEMA21==INVALID_HANDLE || hEMA55==INVALID_HANDLE || hSMAfast==INVALID_HANDLE || hSMAslow==INVALID_HANDLE || 
