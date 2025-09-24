@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//|                         TEST CLAUDE FIXED - Lot Size & TP Corrected |
-//|  Version corrigée avec calcul simplifié pour XAUUSD              |
+//|                         TEST CLAUDE FIXED V2 - CSV Windows Compatible |
+//|  Version optimisée pour export CSV Windows avec point-virgule   |
 //|  Risque: 100$ FIXE | TP: 500$ FIXE (5R) | SL: 0.35%             |
 //+------------------------------------------------------------------+
 #property strict
@@ -442,7 +442,7 @@ int OnInit()
       Print("Erreur: handle indicateur invalide"); return INIT_FAILED;
    }
 
-   Print("TEST CLAUDE FIXED initialise - Calculs simplifies pour XAUUSD");
+   Print("TEST CLAUDE FIXED V2 initialise - Export CSV Windows compatible");
    Print("Risque fixe: 100$ | TP fixe: 500$ | SL: 0.35%");
 
    return INIT_SUCCEEDED;
@@ -583,10 +583,11 @@ string MonthToString(int month)
 //======================== Export CSV Functions ========================
 void ExportTradeHistoryCSV()
 {
-   Print("=== DÉBUT EXPORT CSV TRADES - VERSION CLAUDE FIXED ===");
+   Print("=== DEBUT EXPORT CSV TRADES - VERSION CLAUDE FIXED V2 ===");
 
-   string file_name = StringSubstr(sym, 0, 6) + "_CLAUDE_FIXED_" + TimeToString(TimeCurrent(), TIME_DATE) + ".csv";
+   string file_name = StringSubstr(sym, 0, 6) + "_CLAUDE_FIXED_V2_" + TimeToString(TimeCurrent(), TIME_DATE) + ".csv";
 
+   // Essayer d'abord avec FILE_COMMON pour compatibilite Windows
    int file_handle = FileOpen(file_name, FILE_WRITE | FILE_ANSI | FILE_COMMON, 0, CP_UTF8);
    if(file_handle == INVALID_HANDLE)
    {
@@ -596,12 +597,13 @@ void ExportTradeHistoryCSV()
 
    if(file_handle == INVALID_HANDLE)
    {
-      Print("ERREUR CRITIQUE: Impossible de créer le fichier CSV. Erreur: ", GetLastError());
+      Print("ERREUR CRITIQUE: Impossible de creer le fichier CSV. Erreur: ", GetLastError());
       return;
    }
 
    Print("Fichier CSV ouvert avec succes: ", file_name);
 
+   // En-tete avec separateurs point-virgule pour Windows
    FileWrite(file_handle, "magic;symbol;type;time_open;time_close;price_open;price_close;profit;volume;swap;commission;comment");
 
    datetime startDate = D'2020.01.01';
@@ -635,6 +637,7 @@ void ExportTradeHistoryCSV()
             double deal_commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
             string deal_comment = HistoryDealGetString(ticket, DEAL_COMMENT);
 
+            // Ligne CSV avec separateurs point-virgule
             string csv_line = IntegerToString(deal_magic) + ";" +
                              deal_symbol + ";" +
                              IntegerToString(deal_type) + ";" +
@@ -664,12 +667,12 @@ void ExportTradeHistoryCSV()
    FileClose(file_handle);
    Print("Fichier CSV ferme avec succes");
    Print("Localisation: MQL5/Files/Common/ ou Tester/Files/");
-   Print("=== FIN EXPORT CSV TRADES - VERSION CLAUDE FIXED ===");
+   Print("=== FIN EXPORT CSV TRADES - VERSION CLAUDE FIXED V2 ===");
 }
 
 void OnTesterDeinit()
 {
-   Print("=== OnTesterDeinit appele - Export automatique CLAUDE FIXED ===");
+   Print("=== OnTesterDeinit appele - Export automatique CLAUDE FIXED V2 ===");
    ExportTradeHistoryCSV();
-   Print("=== Fin OnTesterDeinit CLAUDE FIXED ===");
+   Print("=== Fin OnTesterDeinit CLAUDE FIXED V2 ===");
 }
