@@ -611,24 +611,27 @@ bool UpdateSentimentData()
       return true; // Utiliser les donnees en cache
    }
 
-   // MODE BACKTEST: Simuler sentiment retail realiste avec variation selon le prix
+   // MODE BACKTEST: Simuler sentiment retail realiste CONTRARIAN (retail perd)
    if(MQLInfoInteger(MQL_TESTER)) {
-      // Utiliser le prix actuel pour determiner le sentiment (effet moutonnier)
+      // Utiliser le prix actuel pour determiner le sentiment
       double close_h1 = iClose(sym, PERIOD_H1, 1);
       double close_h1_prev = iClose(sym, PERIOD_H1, 10);
 
-      // Si prix monte sur 10 dernieres bougies: retail achete plus (effet moutonnier)
+      // RETAIL = CONTRARIAN: Si prix monte, retail VEND (pense que c'est trop cher)
+      // Si prix baisse, retail ACHETE (pense que c'est bon marche)
       if(close_h1 > close_h1_prev) {
-         sentiment_long_pct = 55.0 + (MathRand() % 30); // 55-85% Long
-         sentiment_short_pct = 100.0 - sentiment_long_pct;
-      } else {
+         // Prix monte -> Retail vend massivement (pense "c'est le top")
          sentiment_short_pct = 55.0 + (MathRand() % 30); // 55-85% Short
          sentiment_long_pct = 100.0 - sentiment_short_pct;
+      } else {
+         // Prix baisse -> Retail achete massivement (pense "c'est le creux")
+         sentiment_long_pct = 55.0 + (MathRand() % 30); // 55-85% Long
+         sentiment_short_pct = 100.0 - sentiment_long_pct;
       }
 
       sentiment_last_update = currentTime;
 
-      PrintFormat("[Sentiment] BACKTEST simulation - Long: %.1f%%, Short: %.1f%%",
+      PrintFormat("[Sentiment] BACKTEST CONTRARIAN - Long: %.1f%%, Short: %.1f%%",
                   sentiment_long_pct, sentiment_short_pct);
       return true;
    }
