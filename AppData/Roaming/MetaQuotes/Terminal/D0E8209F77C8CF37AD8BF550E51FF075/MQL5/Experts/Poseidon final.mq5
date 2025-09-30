@@ -605,13 +605,35 @@ bool UpdateSentimentData()
 {
    if(!InpUseSentimentFilter) return true;
 
-   // Eviter les appels trop frequents (maximum 1 fois par heure)
+   // Eviter les appels trop frequents (maximum 1 fois par jour en backtest)
    datetime currentTime = TimeCurrent();
-   if(sentiment_last_update > 0 && (currentTime - sentiment_last_update) < 3600) {
+   if(sentiment_last_update > 0 && (currentTime - sentiment_last_update) < 86400) {
       return true; // Utiliser les donnees en cache
    }
 
-   // Preparer la requete WebRequest vers Myfxbook
+   // MODE BACKTEST: Simuler sentiment retail realiste avec variation selon le prix
+   if(MQLInfoInteger(MQL_TESTER)) {
+      // Utiliser le prix actuel pour determiner le sentiment (effet moutonnier)
+      double close_h1 = iClose(sym, PERIOD_H1, 1);
+      double close_h1_prev = iClose(sym, PERIOD_H1, 10);
+
+      // Si prix monte sur 10 dernieres bougies: retail achete plus (effet moutonnier)
+      if(close_h1 > close_h1_prev) {
+         sentiment_long_pct = 55.0 + (MathRand() % 30); // 55-85% Long
+         sentiment_short_pct = 100.0 - sentiment_long_pct;
+      } else {
+         sentiment_short_pct = 55.0 + (MathRand() % 30); // 55-85% Short
+         sentiment_long_pct = 100.0 - sentiment_short_pct;
+      }
+
+      sentiment_last_update = currentTime;
+
+      PrintFormat("[Sentiment] BACKTEST simulation - Long: %.1f%%, Short: %.1f%%",
+                  sentiment_long_pct, sentiment_short_pct);
+      return true;
+   }
+
+   // MODE LIVE: Preparer la requete WebRequest vers Myfxbook
    string url = "https://www.myfxbook.com/community/outlook/" + sym;
    string cookie = NULL, headers;
    char post[], result[];
@@ -649,29 +671,19 @@ bool UpdateSentimentData()
 
          sentiment_last_update = currentTime;
 
-         if(InpVerboseLogs) {
-            PrintFormat("[Sentiment] REEL Myfxbook - Long: %.1f%%, Short: %.1f%%",
-                        sentiment_long_pct, sentiment_short_pct);
-         }
-
+         PrintFormat("[Sentiment] REEL Myfxbook - Long: %.1f%%, Short: %.1f%%",
+                     sentiment_long_pct, sentiment_short_pct);
          return true;
       }
    }
 
-   // Fallback: si WebRequest echoue, utiliser des valeurs neutres
+   // Fallback LIVE: si WebRequest echoue, utiliser des valeurs neutres
    int error = GetLastError();
-   if(error != 0) {
-      PrintFormat("[Sentiment] ERREUR WebRequest (%d) - Utilisation valeurs neutres", error);
-   }
+   PrintFormat("[Sentiment] ERREUR WebRequest (%d) - Utilisation valeurs neutres 50/50", error);
 
    sentiment_long_pct = 50.0;
    sentiment_short_pct = 50.0;
    sentiment_last_update = currentTime;
-
-   if(InpVerboseLogs) {
-      PrintFormat("[Sentiment] FALLBACK - Long: %.1f%%, Short: %.1f%%",
-                  sentiment_long_pct, sentiment_short_pct);
-   }
 
    return true;
 }
