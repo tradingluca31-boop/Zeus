@@ -61,7 +61,7 @@ input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;       // UT SMMA (H4)
 input bool InpUseRSI = true;                                // Utiliser filtre RSI
 input ENUM_TIMEFRAMES InpRSITF = PERIOD_H4;                 // TimeFrame RSI
 input int InpRSIPeriod = 14;                                // Période RSI (Value=14 / Start=7 / Step=1 / Stop=40)
-input int InpRSIOverbought = 70;                            // Seuil surachat RSI (Value=70 / Start=60 / Step=1 / Stop=85)
+input int InpRSIOverbought = 80;                            // Seuil surachat RSI (Value=70 / Start=60 / Step=1 / Stop=85)
 input int InpRSIOversold = 25;                              // Seuil survente RSI (Value=25 / Start=10 / Step=1 / Stop=40)
 input bool InpRSIBlockEqual = true;                         // Bloquer si == aux seuils (>=/<= vs >/<)
 
