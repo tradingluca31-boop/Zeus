@@ -67,7 +67,7 @@ input bool InpRSIBlockEqual = true;                         // Bloquer si == aux
 
 // [ADDED] === Sentiment Retail Filter ===
 input bool InpUseSentimentFilter = true;                        // Utiliser filtre Sentiment Retail Myfxbook
-input double InpSentimentThreshold = 80.0;                      // Seuil bloquant (>80% = bloque même sens)
+input double InpSentimentThreshold = 75.0;                      // Seuil bloquant (>80% = bloque même sens)
 
 //=== Month Filter Inputs START ===========================================
 input bool InpTrade_Janvier   = true;  // Trader en Janvier
