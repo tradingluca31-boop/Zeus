@@ -43,7 +43,8 @@ input double ReducedRiskMoney   = 50.0;  // Montant risqué sous série de perte
 input double InpSL_PercentOfPrice  = 0.35;  // SL = % du prix d'entrée (ex: 0.25 => 0.25%)
 input double InpTP_PercentOfPrice  = 1.75;  // TP = % du prix d'entrée
 input double InpBE_TriggerPercent  = 1;  // Passer BE quand le prix a évolué de +0.70% depuis l'entrée
-input int    InpMaxTradesPerDay    = 4;
+input int    InpMaxTradesPerDay    = 2
+     ;
 
 
 // --- Fenêtre d'ouverture ---
