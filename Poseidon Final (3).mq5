@@ -43,7 +43,8 @@ input double ReducedRiskMoney   = 50.0;  // Montant risqué sous série de perte
 input double InpSL_PercentOfPrice  = 0.35;  // SL = % du prix d'entrée (ex: 0.25 => 0.25%)
 input double InpTP_PercentOfPrice  = 1.75;  // TP = % du prix d'entrée
 input double InpBE_TriggerPercent  = 1;  // Passer BE quand le prix a évolué de +0.70% depuis l'entrée
-input int    InpMaxTradesPerDay    = 2;
+input int    InpMaxTradesPerDay    = 2
+     ;
 
 
 // --- Fenêtre d'ouverture ---
@@ -60,14 +61,14 @@ input ENUM_TIMEFRAMES InpSMMA_TF = PERIOD_H4;       // UT SMMA (H4)
 // [ADDED] === RSI Filter ===
 input bool InpUseRSI = true;                                // Utiliser filtre RSI
 input ENUM_TIMEFRAMES InpRSITF = PERIOD_H4;                 // TimeFrame RSI
-input int InpRSIPeriod = 14;                                // Période RSI (Value=14 / Start=7 / Step=1 / Stop=40)
+input int InpRSIPeriod = 12;                                // Période RSI (Value=14 / Start=7 / Step=1 / Stop=40)
 input int InpRSIOverbought = 80;                            // Seuil surachat RSI (Value=70 / Start=60 / Step=1 / Stop=85)
 input int InpRSIOversold = 25;                              // Seuil survente RSI (Value=25 / Start=10 / Step=1 / Stop=40)
 input bool InpRSIBlockEqual = true;                         // Bloquer si == aux seuils (>=/<= vs >/<)
 
 // [ADDED] === Sentiment Retail Filter ===
 input bool InpUseSentimentFilter = true;                        // Utiliser filtre Sentiment Retail Myfxbook
-input double InpSentimentThreshold = 75.0;                      // Seuil bloquant (>80% = bloque même sens)
+input double InpSentimentThreshold = 80.0;                      // Seuil bloquant (>80% = bloque même sens)
 
 //=== Month Filter Inputs START ===========================================
 input bool InpTrade_Janvier   = true;  // Trader en Janvier
