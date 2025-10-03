@@ -35,6 +35,14 @@ input int    InpMR_ATRPeriod = 14;             // Période ATR
 input double InpMR_ATRMultiplier = 2.0;        // Multiplicateur ATR
 input double InpMR_MinATR = 0.0001;            // ATR minimum
 
+input group "=== SIGNAUX TECHNIQUES ==="
+input int    InpRSI_Period = 14;               // Période RSI
+input int    InpRSI_Overbought = 70;           // RSI surachat
+input int    InpRSI_Oversold = 30;             // RSI survente
+input int    InpMACD_Fast = 12;                // MACD Fast EMA
+input int    InpMACD_Slow = 26;                // MACD Slow EMA
+input int    InpMACD_Signal = 9;               // MACD Signal
+
 input group "=== STRATEGY 3: ADAPTIVE TRAILING STOP ==="
 input double InpTS_Phase1_Profit = 0.5;        // Phase 1: % profit pour BE
 input double InpTS_Phase2_Profit = 1.5;        // Phase 2: % profit pour trailing +0.5%
@@ -65,6 +73,8 @@ double g_PeakBalance = 0.0;
 //--- Indicator handles
 int g_EMA_Handle[];
 int g_ATR_Handle[];
+int g_RSI_Handle[];
+int g_MACD_Handle[];
 
 //--- Structures
 struct DailyRangeData {
@@ -102,6 +112,8 @@ int OnInit()
     //--- Initialize arrays
     ArrayResize(g_EMA_Handle, ArraySize(g_Symbols));
     ArrayResize(g_ATR_Handle, ArraySize(g_Symbols));
+    ArrayResize(g_RSI_Handle, ArraySize(g_Symbols));
+    ArrayResize(g_MACD_Handle, ArraySize(g_Symbols));
     ArrayResize(g_DailyRange, ArraySize(g_Symbols));
 
     //--- Create indicator handles for all symbols
@@ -109,8 +121,11 @@ int OnInit()
     {
         g_EMA_Handle[i] = iMA(g_Symbols[i], PERIOD_CURRENT, InpMR_EMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
         g_ATR_Handle[i] = iATR(g_Symbols[i], PERIOD_CURRENT, InpMR_ATRPeriod);
+        g_RSI_Handle[i] = iRSI(g_Symbols[i], PERIOD_CURRENT, InpRSI_Period, PRICE_CLOSE);
+        g_MACD_Handle[i] = iMACD(g_Symbols[i], PERIOD_CURRENT, InpMACD_Fast, InpMACD_Slow, InpMACD_Signal, PRICE_CLOSE);
 
-        if(g_EMA_Handle[i] == INVALID_HANDLE || g_ATR_Handle[i] == INVALID_HANDLE)
+        if(g_EMA_Handle[i] == INVALID_HANDLE || g_ATR_Handle[i] == INVALID_HANDLE ||
+           g_RSI_Handle[i] == INVALID_HANDLE || g_MACD_Handle[i] == INVALID_HANDLE)
         {
             Print("ERREUR: Impossible de créer les indicateurs pour ", g_Symbols[i]);
             return INIT_FAILED;
@@ -143,6 +158,8 @@ void OnDeinit(const int reason)
     {
         if(g_EMA_Handle[i] != INVALID_HANDLE) IndicatorRelease(g_EMA_Handle[i]);
         if(g_ATR_Handle[i] != INVALID_HANDLE) IndicatorRelease(g_ATR_Handle[i]);
+        if(g_RSI_Handle[i] != INVALID_HANDLE) IndicatorRelease(g_RSI_Handle[i]);
+        if(g_MACD_Handle[i] != INVALID_HANDLE) IndicatorRelease(g_MACD_Handle[i]);
     }
 
     Print("Zeus Hybrid déchargé - Raison: ", reason);
@@ -179,11 +196,26 @@ void OnTick()
 //+------------------------------------------------------------------+
 void AnalyzeSymbol(string symbol, int symbolIndex)
 {
-    //--- Check if symbol already has a position
+    //--- FILTRES ÉLIMINATOIRES (doivent TOUS être respectés)
+
+    //--- Filtre 1: Pas de position déjà ouverte
     if(HasOpenPosition(symbol)) return;
 
-    //--- Check correlation exposure
-    if(!CheckCorrelationExposure(symbol)) return;
+    //--- Filtre 2: Vérifier heures de trading
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    if(dt.hour < InpDRB_TradingStartHour || dt.hour >= InpDRB_TradingEndHour)
+    {
+        if(InpVerboseLogs) Print("Filtre HEURES échoué: ", symbol);
+        return;
+    }
+
+    //--- Filtre 3: Corrélation
+    if(!CheckCorrelationExposure(symbol))
+    {
+        if(InpVerboseLogs) Print("Filtre CORRELATION échoué: ", symbol);
+        return;
+    }
 
     //--- Update daily range
     UpdateDailyRange(symbol, symbolIndex);
@@ -191,114 +223,133 @@ void AnalyzeSymbol(string symbol, int symbolIndex)
     //--- Get market data
     double close = iClose(symbol, PERIOD_CURRENT, 1);
     double open = iOpen(symbol, PERIOD_CURRENT, 1);
+    double high = iHigh(symbol, PERIOD_CURRENT, 1);
+    double low = iLow(symbol, PERIOD_CURRENT, 1);
 
     //--- Get indicator values
-    double ema[], atr[];
+    double ema[], atr[], rsi[], macd_main[], macd_signal[];
     ArraySetAsSeries(ema, true);
     ArraySetAsSeries(atr, true);
+    ArraySetAsSeries(rsi, true);
+    ArraySetAsSeries(macd_main, true);
+    ArraySetAsSeries(macd_signal, true);
 
     if(CopyBuffer(g_EMA_Handle[symbolIndex], 0, 0, 3, ema) < 3) return;
     if(CopyBuffer(g_ATR_Handle[symbolIndex], 0, 0, 3, atr) < 3) return;
+    if(CopyBuffer(g_RSI_Handle[symbolIndex], 0, 0, 3, rsi) < 3) return;
+    if(CopyBuffer(g_MACD_Handle[symbolIndex], 0, 0, 3, macd_main) < 3) return;
+    if(CopyBuffer(g_MACD_Handle[symbolIndex], 1, 0, 3, macd_signal) < 3) return;
 
     double currentATR = atr[1];
     double currentEMA = ema[1];
+    double currentRSI = rsi[1];
+    double currentMACD_Main = macd_main[1];
+    double currentMACD_Signal = macd_signal[1];
 
-    //--- SCORE CONDITIONS (10 conditions totales)
-    int conditionsTotal = 10;
-    int conditionsPassed = 0;
-
-    //--- Condition 1: Daily Range Breakout (Stratégie 1)
-    bool drbBuySignal = false, drbSellSignal = false;
-    if(g_DailyRange[symbolIndex].isValid)
+    //--- Filtre 4: ATR minimum
+    if(currentATR < InpMR_MinATR)
     {
-        double highBreakout = g_DailyRange[symbolIndex].highPrice + InpDRB_BreakoutBuffer * _Point;
-        double lowBreakout = g_DailyRange[symbolIndex].lowPrice - InpDRB_BreakoutBuffer * _Point;
-
-        drbBuySignal = (close > highBreakout);
-        drbSellSignal = (close < lowBreakout);
-
-        if(drbBuySignal || drbSellSignal) conditionsPassed++;
+        if(InpVerboseLogs) Print("Filtre ATR MIN échoué: ", symbol, " ATR=", currentATR);
+        return;
     }
 
-    //--- Condition 2: Trading hours (Stratégie 1)
-    MqlDateTime dt;
-    TimeToStruct(TimeCurrent(), dt);
-    bool validTradingHours = (dt.hour >= InpDRB_TradingStartHour && dt.hour < InpDRB_TradingEndHour);
-    if(validTradingHours) conditionsPassed++;
+    //--- Filtre 5: Drawdown sous contrôle (80% du max)
+    if(CalculateCurrentDrawdown() >= InpMaxDrawdown * 0.8)
+    {
+        if(InpVerboseLogs) Print("Filtre DRAWDOWN échoué: ", symbol);
+        return;
+    }
 
-    //--- Condition 3: Mean Reversion - Price extension (Stratégie 2)
+    //--- Filtre 6: Range valide
+    if(!g_DailyRange[symbolIndex].isValid)
+    {
+        if(InpVerboseLogs) Print("Filtre DAILY RANGE invalide: ", symbol);
+        return;
+    }
+
+    if(InpVerboseLogs) Print(">>> ", symbol, " - TOUS FILTRES PASSÉS - Analyse signaux...");
+
+    //--- SIGNAUX POUR SCORING 70% (10 signaux techniques)
+    int signalsTotal = 10;
+    int signalsBuy = 0, signalsSell = 0;
+
+    //--- Signal 1: Daily Range Breakout (Stratégie 1)
+    double highBreakout = g_DailyRange[symbolIndex].highPrice + InpDRB_BreakoutBuffer * _Point;
+    double lowBreakout = g_DailyRange[symbolIndex].lowPrice - InpDRB_BreakoutBuffer * _Point;
+
+    if(close > highBreakout) signalsBuy++;
+    else if(close < lowBreakout) signalsSell++;
+
+    //--- Signal 2: Mean Reversion ATR (Stratégie 2)
     double upperBand = currentEMA + (currentATR * InpMR_ATRMultiplier);
     double lowerBand = currentEMA - (currentATR * InpMR_ATRMultiplier);
 
-    bool mrBuySignal = (close < lowerBand);  // Prix en dessous = buy mean reversion
-    bool mrSellSignal = (close > upperBand); // Prix au dessus = sell mean reversion
-    if(mrBuySignal || mrSellSignal) conditionsPassed++;
+    if(close < lowerBand) signalsBuy++;      // Prix bas = buy mean reversion
+    else if(close > upperBand) signalsSell++; // Prix haut = sell mean reversion
 
-    //--- Condition 4: ATR minimum (Stratégie 2)
-    bool atrValid = (currentATR > InpMinATR);
-    if(atrValid) conditionsPassed++;
+    //--- Signal 3: EMA Trend
+    if(ema[1] > ema[2]) signalsBuy++;
+    else if(ema[1] < ema[2]) signalsSell++;
 
-    //--- Condition 5: EMA trend
-    bool emaTrendUp = (ema[1] > ema[2]);
-    bool emaTrendDown = (ema[1] < ema[2]);
-    if(emaTrendUp || emaTrendDown) conditionsPassed++;
+    //--- Signal 4: Price vs EMA
+    if(close > currentEMA) signalsBuy++;
+    else if(close < currentEMA) signalsSell++;
 
-    //--- Condition 6: Price vs EMA position
-    bool priceAboveEMA = (close > currentEMA);
-    bool priceBelowEMA = (close < currentEMA);
-    if(priceAboveEMA || priceBelowEMA) conditionsPassed++;
+    //--- Signal 5: RSI
+    if(currentRSI < InpRSI_Oversold) signalsBuy++;       // RSI survente = buy
+    else if(currentRSI > InpRSI_Overbought) signalsSell++; // RSI surachat = sell
 
-    //--- Condition 7: Candle direction
-    bool bullishCandle = (close > open);
-    bool bearishCandle = (close < open);
-    if(bullishCandle || bearishCandle) conditionsPassed++;
+    //--- Signal 6: MACD Crossover
+    if(currentMACD_Main > currentMACD_Signal && macd_main[2] <= macd_signal[2]) signalsBuy++;  // Bullish cross
+    else if(currentMACD_Main < currentMACD_Signal && macd_main[2] >= macd_signal[2]) signalsSell++; // Bearish cross
 
-    //--- Condition 8: ATR increasing (volatility)
-    bool atrIncreasing = (atr[1] > atr[2]);
-    if(atrIncreasing) conditionsPassed++;
+    //--- Signal 7: MACD Position vs Zero
+    if(currentMACD_Main > 0) signalsBuy++;
+    else if(currentMACD_Main < 0) signalsSell++;
 
-    //--- Condition 9: Range size valid
-    bool rangeValid = (g_DailyRange[symbolIndex].isValid && g_DailyRange[symbolIndex].rangeSize > currentATR);
-    if(rangeValid) conditionsPassed++;
+    //--- Signal 8: Candle Type
+    double candleBody = MathAbs(close - open);
+    double candleRange = high - low;
+    bool bullishCandle = (close > open && candleBody > candleRange * 0.6); // 60% body
+    bool bearishCandle = (close < open && candleBody > candleRange * 0.6);
 
-    //--- Condition 10: Drawdown under control
-    bool ddUnderControl = (CalculateCurrentDrawdown() < InpMaxDrawdown * 0.8); // 80% of max DD
-    if(ddUnderControl) conditionsPassed++;
+    if(bullishCandle) signalsBuy++;
+    else if(bearishCandle) signalsSell++;
+
+    //--- Signal 9: ATR Trend (volatilité)
+    if(atr[1] > atr[2]) signalsBuy++;  // Volatilité hausse = momentum
+    else if(atr[1] < atr[2]) signalsSell++; // Volatilité baisse = retournement
+
+    //--- Signal 10: Range Momentum
+    double rangeCenter = (g_DailyRange[symbolIndex].highPrice + g_DailyRange[symbolIndex].lowPrice) / 2.0;
+    if(close > rangeCenter) signalsBuy++;
+    else if(close < rangeCenter) signalsSell++;
 
     //--- EVALUATE 70% THRESHOLD
-    double successRate = (double)conditionsPassed / (double)conditionsTotal;
+    double buyRate = (double)signalsBuy / (double)signalsTotal;
+    double sellRate = (double)signalsSell / (double)signalsTotal;
 
     if(InpVerboseLogs)
     {
-        Print("=== ", symbol, " === Conditions: ", conditionsPassed, "/", conditionsTotal,
-              " (", DoubleToString(successRate * 100, 1), "%)");
+        Print("=== ", symbol, " === Signaux BUY: ", signalsBuy, "/", signalsTotal,
+              " (", DoubleToString(buyRate * 100, 1), "%) | SELL: ", signalsSell, "/", signalsTotal,
+              " (", DoubleToString(sellRate * 100, 1), "%)");
     }
 
-    //--- Need at least 70% (7/10)
-    if(successRate < 0.70) return;
-
-    //--- Determine signal direction
-    int buyScore = 0, sellScore = 0;
-
-    if(drbBuySignal) buyScore++;
-    if(drbSellSignal) sellScore++;
-    if(mrBuySignal) buyScore++;
-    if(mrSellSignal) sellScore++;
-    if(emaTrendUp) buyScore++;
-    if(emaTrendDown) sellScore++;
-    if(priceAboveEMA) buyScore++;
-    if(priceBelowEMA) sellScore++;
-    if(bullishCandle) buyScore++;
-    if(bearishCandle) sellScore++;
-
-    //--- Execute trade
-    if(buyScore > sellScore && buyScore >= 4)
+    //--- Execute trade si >= 70% (7/10 signaux)
+    if(buyRate >= 0.70)
     {
+        Print(">>> SIGNAL BUY validé - ", symbol, " avec ", DoubleToString(buyRate * 100, 1), "% des signaux");
         OpenPosition(symbol, ORDER_TYPE_BUY, currentATR, close);
     }
-    else if(sellScore > buyScore && sellScore >= 4)
+    else if(sellRate >= 0.70)
     {
+        Print(">>> SIGNAL SELL validé - ", symbol, " avec ", DoubleToString(sellRate * 100, 1), "% des signaux");
         OpenPosition(symbol, ORDER_TYPE_SELL, currentATR, close);
+    }
+    else
+    {
+        if(InpVerboseLogs) Print("Seuil 70% non atteint pour ", symbol);
     }
 }
 
