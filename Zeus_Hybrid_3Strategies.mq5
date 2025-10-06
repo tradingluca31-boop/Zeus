@@ -432,31 +432,66 @@ void UpdateDailyRange(string symbol, int symbolIndex)
     if(g_DailyRange[symbolIndex].calculatedDate == today && g_DailyRange[symbolIndex].isValid)
         return;
 
-    //--- Calculate range only after end hour
+    //--- CORRECTION: Permettre calcul dès que range période est terminée
+    // On peut trader même pendant la période de range (0h-6h), on utilise le range d'hier
+    datetime startTime, endTime;
+
     if(dt.hour < InpDRB_EndHour)
     {
+        // Avant 6h: utiliser le range d'hier
+        MqlDateTime dtYesterday = dt;
+        dtYesterday.day -= 1;
+        datetime yesterday = StructToTime(dtYesterday);
+        TimeToStruct(yesterday, dtYesterday);
+
+        startTime = StringToTime(IntegerToString(dtYesterday.year) + "." +
+                                 IntegerToString(dtYesterday.mon) + "." +
+                                 IntegerToString(dtYesterday.day) + " " +
+                                 IntegerToString(InpDRB_StartHour) + ":00");
+
+        endTime = StringToTime(IntegerToString(dtYesterday.year) + "." +
+                               IntegerToString(dtYesterday.mon) + "." +
+                               IntegerToString(dtYesterday.day) + " " +
+                               IntegerToString(InpDRB_EndHour) + ":00");
+    }
+    else
+    {
+        // Après 6h: utiliser le range d'aujourd'hui
+        startTime = StringToTime(IntegerToString(dt.year) + "." +
+                                 IntegerToString(dt.mon) + "." +
+                                 IntegerToString(dt.day) + " " +
+                                 IntegerToString(InpDRB_StartHour) + ":00");
+
+        endTime = StringToTime(IntegerToString(dt.year) + "." +
+                               IntegerToString(dt.mon) + "." +
+                               IntegerToString(dt.day) + " " +
+                               IntegerToString(InpDRB_EndHour) + ":00");
+    }
+
+    //--- CORRECTION MQL5: Utiliser CopyHigh/CopyLow au lieu de iBarShift
+    double highPrices[], lowPrices[];
+    ArraySetAsSeries(highPrices, true);
+    ArraySetAsSeries(lowPrices, true);
+
+    int copied = CopyHigh(symbol, PERIOD_H1, startTime, endTime, highPrices);
+    if(copied <= 0)
+    {
+        if(InpVerboseLogs) Print("Erreur CopyHigh pour ", symbol, " - copied=", copied);
         g_DailyRange[symbolIndex].isValid = false;
         return;
     }
 
-    //--- Find high and low between start and end hours
-    datetime startTime = StringToTime(IntegerToString(dt.year) + "." +
-                                       IntegerToString(dt.mon) + "." +
-                                       IntegerToString(dt.day) + " " +
-                                       IntegerToString(InpDRB_StartHour) + ":00");
+    copied = CopyLow(symbol, PERIOD_H1, startTime, endTime, lowPrices);
+    if(copied <= 0)
+    {
+        if(InpVerboseLogs) Print("Erreur CopyLow pour ", symbol, " - copied=", copied);
+        g_DailyRange[symbolIndex].isValid = false;
+        return;
+    }
 
-    datetime endTime = StringToTime(IntegerToString(dt.year) + "." +
-                                     IntegerToString(dt.mon) + "." +
-                                     IntegerToString(dt.day) + " " +
-                                     IntegerToString(InpDRB_EndHour) + ":00");
-
-    int startBar = iBarShift(symbol, PERIOD_H1, startTime);
-    int endBar = iBarShift(symbol, PERIOD_H1, endTime);
-
-    if(startBar < 0 || endBar < 0) return;
-
-    double rangeHigh = iHigh(symbol, PERIOD_H1, iHighest(symbol, PERIOD_H1, MODE_HIGH, startBar - endBar, endBar));
-    double rangeLow = iLow(symbol, PERIOD_H1, iLowest(symbol, PERIOD_H1, MODE_LOW, startBar - endBar, endBar));
+    //--- Trouver le plus haut et le plus bas
+    double rangeHigh = highPrices[ArrayMaximum(highPrices)];
+    double rangeLow = lowPrices[ArrayMinimum(lowPrices)];
 
     g_DailyRange[symbolIndex].highPrice = rangeHigh;
     g_DailyRange[symbolIndex].lowPrice = rangeLow;
@@ -466,8 +501,9 @@ void UpdateDailyRange(string symbol, int symbolIndex)
 
     if(InpVerboseLogs)
     {
-        Print("Daily Range calculé pour ", symbol, ": High=", rangeHigh, " Low=", rangeLow,
-              " Size=", g_DailyRange[symbolIndex].rangeSize);
+        Print("Daily Range calculé pour ", symbol, ": High=", DoubleToString(rangeHigh, 5),
+              " Low=", DoubleToString(rangeLow, 5),
+              " Size=", DoubleToString(g_DailyRange[symbolIndex].rangeSize, 5));
     }
 }
 
